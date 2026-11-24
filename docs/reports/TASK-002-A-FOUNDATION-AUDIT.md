@@ -37,6 +37,14 @@ For TASK 002, the proposed baseline is a small Rust library using safe Rust and 
 
 **Remediation:** Keep this workflow lightweight, but state its scope in project docs (or name it explicitly as repository hygiene). When Rust code is introduced, add bounded format, lint, build, and tests in normal CI; add license/dependency checks when dependencies exist. Avoid adding overlapping checks without a concrete failure mode.
 
+### MEDIUM — Public repository description can imply an implemented model
+
+**Evidence:** The live GitHub repository description says “An open-source, CPU-first language model built from scratch for cybersecurity, Linux, operating systems, networking, and low-level systems engineering.” The README itself correctly qualifies the project as early-stage research and explicitly says no trained model, domain capability, or production runtime exists.
+
+**Impact:** The short description is shown outside the README and can be interpreted as an existing model/capability claim, which is inconsistent with the more careful status statement and the rule not to present planned capabilities as implemented.
+
+**Remediation:** Revise the GitHub description to say “research project to develop” a CPU-first language model, or equivalent, after project-owner review. Keep the README’s explicit current-state disclaimer.
+
 ### LOW — Credential and privacy protection is guidance, not automated detection
 
 **Evidence:** Privacy rules appear in README, CONTRIBUTING, compute policy, templates, and `.gitignore`; CI currently searches only for selected model binary extensions. There is no secret-scanning or personal-path/hardware identifier check in the workflow.
