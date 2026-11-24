@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible problem in repository content or implemented code.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include credentials, personal data, private files, or machine-identifying reports."
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed problem and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide minimal steps and relevant revision or environment category.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Checks performed
+    validations:
+      required: false

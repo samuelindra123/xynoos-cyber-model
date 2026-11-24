@@ -1,0 +1,23 @@
+name: Research proposal
+description: Propose a measurable research question or experiment.
+labels: ["research"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question and hypothesis
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: Proposed method and evaluation
+      description: Include controls, metrics, and how results can be reproduced.
+    validations:
+      required: true
+  - type: textarea
+    id: resources
+    attributes:
+      label: Data provenance, safety, and bounded resource plan
+    validations:
+      required: true

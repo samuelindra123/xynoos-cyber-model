@@ -1,0 +1,52 @@
+# Build and generated output
+/target/
+/build/
+/dist/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Models, checkpoints, datasets, and experiment output
+/models/**/*.bin
+/models/**/*.safetensors
+/models/**/*.gguf
+/models/**/*.ckpt
+/datasets/**
+!/datasets/README.md
+/experiments/**/outputs/
+/benchmarks/results/
+*.model
+*.tensor
+
+# Python and tooling
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Temporary, profiling, and local configuration
+*.tmp
+*.log
+*.prof
+*.trace
+.env
+.env.*
+!.env.example
+*.local
+hardware-report*
+system-info*
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

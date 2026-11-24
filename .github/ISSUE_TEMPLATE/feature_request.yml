@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a scoped project improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Evidence, resource bounds, and tradeoffs
+    validations:
+      required: false

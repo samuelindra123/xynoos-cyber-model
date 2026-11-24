@@ -1,0 +1,78 @@
+name: Foundation CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Repository foundation checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate required files and repository hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md research/README.md models/README.md datasets/README.md benchmarks/README.md experiments/README.md)
+          for file in "${required[@]}"; do
+            test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
+          done
+          test -s .github/workflows/ci.yml
+          test -s .github/ISSUE_TEMPLATE/bug_report.yml
+          test -s .github/ISSUE_TEMPLATE/feature_request.yml
+          test -s .github/ISSUE_TEMPLATE/research_proposal.yml
+          test -s .github/PULL_REQUEST_TEMPLATE.md
+          grep -q 'Apache License' LICENSE
+          grep -q 'Version 2.0, January 2004' LICENSE
+          if find . -type f \( -name '*.safetensors' -o -name '*.gguf' -o -name '*.ckpt' -o -name '*.bin' \) -print -quit | grep -q .; then
+            echo 'Unexpected model binary committed.'
+            exit 1
+          fi
+
+      - name: Validate Markdown hygiene
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          files = list(Path('.').rglob('*.md'))
+          failures = []
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              if not text.endswith('\n'):
+                  failures.append(f'{path}: missing final newline')
+              for number, line in enumerate(text.splitlines(), 1):
+                  if line.rstrip(' \t') != line and not line.startswith('|'):
+                      failures.append(f'{path}:{number}: trailing whitespace')
+                  if line.startswith('#') and not re.match(r'^#{1,6} ', line):
+                      failures.append(f'{path}:{number}: malformed heading')
+          if failures:
+              print('\n'.join(failures))
+              sys.exit(1)
+          print(f'Validated Markdown hygiene in {len(files)} files.')
+          PY
+
+      - name: Validate YAML syntax
+        shell: ruby {0}
+        run: |
+          require 'yaml'
+          Dir.glob('.github/**/*.yml').each do |path|
+            YAML.load_file(path, aliases: true)
+            puts "Valid YAML: #{path}"
+          end
