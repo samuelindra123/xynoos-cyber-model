@@ -29,6 +29,8 @@ The lightweight `Foundation CI` workflow has read-only repository permissions, a
 
 The initial GitHub Actions run **passed** on commit `f3c2ef00f744cc2e46a508e7ca8a71fe300e226b`. All workflow steps completed successfully: checkout, required-file and hygiene checks, Markdown validation, and YAML parsing. Run: https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45422051649
 
+The report commit's workflow also passed. Its runner surfaced a Node.js 20 deprecation notice for the checkout action, so the workflow was updated to pin the current `actions/checkout` v7.0.1 commit. The refreshed workflow passed on `e2c9c17aa6a9dfd62954d26562c78f07ec0455c7`: https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45422491784
+
 Local checks also confirmed required files, Markdown formatting, and clean Git whitespace. Ruby was unavailable locally, so YAML parsing was validated by the successful Ubuntu CI runner rather than by a local parser.
 
 ## Git history
