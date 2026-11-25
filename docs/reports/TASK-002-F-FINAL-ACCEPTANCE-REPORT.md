@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-This report records owner-authorized integration of the numerical foundation, planning record, and independent audit. The final integrated implementation passed exact-head CI and was squash-merged into `main`. Post-merge CI is running on the resulting `main` revision; this report will be finalized after that run succeeds. No model, tokenizer, autodiff engine, optimizer, training system, or inference runtime is claimed as implemented.
+This report records owner-authorized integration of the numerical foundation, planning record, and independent audit. The final integrated implementation passed exact-head CI and was squash-merged into `main`. Post-merge CI passed on the resulting `main` revision; TASK 002 is integrated and accepted. No model, tokenizer, autodiff engine, optimizer, training system, or inference runtime is claimed as implemented.
 
 ## Accepted evidence
 
@@ -20,13 +20,13 @@ This report records owner-authorized integration of the numerical foundation, pl
 |---|---|---|
 | [PR #3 — independent audit](https://github.com/samuelindra123/xynoos-cyber-model/pull/3) | Squash into `feat/task-002-b-numerical-foundation` | Merged after full CI passed on exact audit head `064f5ace1c44ddc18b4adb97ee6c961a22003196`; merge commit `441173c26ed6eb1c2a476921e8124bb90ee583aa`. |
 | [PR #1 — planning](https://github.com/samuelindra123/xynoos-cyber-model/pull/1) | Squash into `main` | Merged after exact-head CI passed on `2ae7e83c395ef64f22e68b7429ae829710586fc6`; merge commit `73e03fb96bfadce08b5e83aa9da86a6f3398486e`. |
-| [PR #2 — implementation](https://github.com/samuelindra123/xynoos-cyber-model/pull/2) | Squash into `main` after all required checks | Merged after exact-head CI passed on `c2d318c2d5cbc8ae273bd779d72aa8431cc767ba` ([run 45542774938](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542774938)); merge commit `6de65b2afceeaed7148edf7b8a90fa5b30c19447`. Post-merge CI is running on that merge commit. |
+| [PR #2 — implementation](https://github.com/samuelindra123/xynoos-cyber-model/pull/2) | Squash into `main` after all required checks | Merged after exact-head CI passed on `c2d318c2d5cbc8ae273bd779d72aa8431cc767ba` ([run 45542774938](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542774938)); merge commit `6de65b2afceeaed7148edf7b8a90fa5b30c19447`. Post-merge CI passed on the merge commit in [run 45542886622](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542886622). The final closure-record revision is separately validated below. |
 
 Planning documents remain explicitly framed as proposals and historical records. Current README and API documentation define actual capabilities. Roadmap marks TASK 002 implementation and review complete with final acceptance contingent on integration and post-merge CI. TASK 001, TASK 002-A/B/C/D/E reports are preserved. TASK 002-D has been faithfully translated into professional English without changing its recorded results, claims, or limitations; its previous text remains recoverable from Git history.
 
 ## Validation and regression requirements
 
-Final implementation CI must pass foundation and repository hygiene checks, privacy/artifact checks, pinned toolchain installation, locked offline Cargo resolution, formatting, Clippy with warnings denied, debug and release tests, doctests, oracle regeneration and integration tests, retained-capacity regression tests, and Rust documentation build. The expected count remains 32 tests in each profile: 13 unit, 10 contract/property, 8 oracle, and 1 doctest. No production numerical code changed after independent acceptance. Record exact final-head and post-merge CI URLs and outcomes before declaring milestone closure.
+Final implementation CI passed foundation and repository hygiene checks, privacy/artifact checks, pinned toolchain installation, locked offline Cargo resolution, formatting, Clippy with warnings denied, debug and release tests, doctests, oracle regeneration and integration tests, retained-capacity regression tests, and Rust documentation build. The exact final implementation PR head passed run 45542774938; post-merge CI on the merge commit passed run 45542886622. The expected count remains 32 tests in each profile: 13 unit, 10 contract/property, 8 oracle, and 1 doctest. No production numerical code changed after independent acceptance. Record exact final-head and post-merge CI URLs and outcomes before declaring milestone closure.
 
 ## Resource safety contracts
 
@@ -50,4 +50,4 @@ The repository description was updated to: “An open-source research project de
 - [ ] Final `main` SHA, merge SHA, CI links, and test results recorded.
 - [ ] Canonical local checkout synchronized, clean, and limited to one working tree.
 
-**Milestone status:** Integration complete; post-merge validation remains in progress. Do not mark TASK 002 accepted until `main` CI succeeds.
+**Milestone status:** TASK 002 is accepted and merged. The implementation-head run passed all required checks; post-merge validation passed on `main` as recorded above.
