@@ -118,3 +118,43 @@ the exact-boundary test, replay the three gradient controls, and verify the
 The crate provides first-order derivatives and single-threaded per-set resource
 accounting. It uses dense CPU kernels, scalar-root backward, strict shapes,
 and SGD without optimizer state. The synthetic experiment is linear regression.
+
+## Measured GitHub Actions results
+
+The initial implementation run completed in both profiles on
+`c42ff590f8f246892b9a64c1924e2c724e5be569`. The exact current PR head and
+its checks are recorded on the draft PR. [Initial CI evidence](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45551198050)
+· [Draft implementation PR #5](https://github.com/samuelindra123/xynoos-cyber-model/pull/5)
+
+For the 25 gradient coordinates, the maximum absolute differences were zero
+against the analytical references, `9.313225746e-8` against Python central
+differences, and `8.214126062e-4` against native-forward central differences.
+The same frozen comparison detected all three deliberately wrong gradients in
+each profile. The Python fixtures regenerated with the following SHA-256 values.
+
+| Fixture | Records | SHA-256 |
+| --- | ---: | --- |
+| Gradients | 25 | `34fe93f5813e0a0756b932452e7fa511798019026e01039404e0c14d432f1d2b` |
+| Learning reference | 101 | `3b4976dc2b8783048ebe3865f0c6d9110be94a46642c7b25be20408d345d54f1` |
+| Native trajectory | 101 | `e50d201a133838fe64158e0dcf94df894efcf17241f1f16e52232a4e75d41c6a` |
+
+| Updates completed | Weight | Bias | Loss |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 0 | 17 |
+| 1 | 0.4000000060 | 0.3000000119 | 12.41000080 |
+| 10 | 1.785251617 | 1.953964829 | 1.186423540 |
+| 25 | 1.992444277 | 2.784630775 | 0.04649810493 |
+| 50 | 1.999971509 | 2.984538555 | 0.0002390571462 |
+| 75 | 1.999999762 | 2.998889923 | 0.000001232164891 |
+| 100 | 1.999999762 | 2.999920368 | 0.000000006348966686 |
+
+All 101 observations agreed bitwise between debug and release. The maximum
+absolute differences versus the independent trajectory were `2.380111719e-7`
+for weight, `5.000470042e-7` for bias, and `8.010864239e-7` for loss. All
+strict monotonicity, final loss, and final parameter thresholds passed.
+
+The original TASK 002 numerical fixture retained SHA-256
+`cdfde7ba9f44f46ba7e757157019730e1124bcd966e796b73286bddf3894fa0f`, 295 cases,
+2,670 expected values, six negative controls, and its fixed tolerances. Its 32
+tests continued to pass in each profile. The tensor snapshot and retained
+capacity extension added a doctest-independent compatibility test.

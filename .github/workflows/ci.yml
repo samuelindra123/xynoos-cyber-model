@@ -141,7 +141,7 @@ jobs:
             test "$(wc -w < "$RUNNER_TEMP/$profile-trajectory.txt")" -eq 102
           done
           cmp "$RUNNER_TEMP/debug-trajectory.txt" "$RUNNER_TEMP/release-trajectory.txt"
-          sha256sum "$RUNNER_TEMP/debug-trajectory.txt"
+          sha256sum < "$RUNNER_TEMP/debug-trajectory.txt"
           echo '101 observations agree bitwise in both Rust profiles.'
 
       - name: Build Rust documentation
