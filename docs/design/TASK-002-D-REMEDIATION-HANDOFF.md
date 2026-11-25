@@ -1,6 +1,6 @@
 # TASK 002-D — Remediation Handoff from Independent Audit
 
-**Source audit:** TASK 002-C, audit commit `51c4d1cf2faa3b3b639c3e18d6fa79fc8a5515b6`  
+**Source audit:** TASK 002-C, audit commit `51c4d1cf2faa3b3b639c3e18d6fa79fc8a5515b6`
 **Implementation reviewed:** `cd5089992a706b0ba6a5f09c42571e8f3c3dc7ce`
 
 ## Required owner/Sessions decision: C-001
