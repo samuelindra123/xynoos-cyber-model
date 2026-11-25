@@ -59,7 +59,7 @@ GitHub Actions provides bounded repository and numerical checks. Future mileston
 
 ## Current status
 
-**Early-stage research and development.** The first numerical component is a safe Rust tensor library for CPU execution. It provides dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. Model implementation, tokenization, datasets, training, inference, and benchmarking remain future work. [Tensor API and numerical contracts](crates/xynoos-tensor/README.md)
+**Early-stage research and development.** The completed TASK 002 numerical foundation is a safe Rust tensor library for CPU execution. It provides dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. Final milestone acceptance follows integration and post-merge CI. Model implementation, tokenization, datasets, training, inference, and benchmarking remain future work. [Tensor API and numerical contracts](crates/xynoos-tensor/README.md)
 
 ## Roadmap
 

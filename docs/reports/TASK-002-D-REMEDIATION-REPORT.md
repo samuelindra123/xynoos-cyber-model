@@ -1,58 +1,58 @@
-# TASK 002-D — Laporan remediasi numerik
+# TASK 002-D — Numerical Remediation Report
 
-## Status dan cakupan
+## Status and scope
 
-Remediasi Session B siap diperiksa ulang oleh Session A melalui draft PR #2. Audit TASK 002-C menemukan satu masalah implementasi yang terkonfirmasi, C-001, dan dua celah validasi pada T-15 dan T-16. Perubahan ini menutup C-001 untuk T-05 dan T-06, membuktikan penolakan input fixture yang salah untuk T-15, dan menetapkan versi Rust yang dapat dipasang ulang untuk T-16. [Audit dan traceability](https://github.com/samuelindra123/xynoos-cyber-model/tree/51c4d1cf2faa3b3b639c3e18d6fa79fc8a5515b6/docs/reports) · [Handoff audit](https://github.com/samuelindra123/xynoos-cyber-model/blob/9f9dd8a2750e74e196feeac8defde4bd2f3d78ef/docs/design/TASK-002-D-REMEDIATION-HANDOFF.md) · [PR #2](https://github.com/samuelindra123/xynoos-cyber-model/pull/2)
+Session B's remediation was submitted for independent review by Session A through draft PR #2. The TASK 002-C audit found one confirmed implementation issue, C-001, and validation gaps in T-15 and T-16. These changes resolve C-001 for T-05 and T-06, demonstrate rejection of malformed fixture input for T-15, and pin a reproducible Rust toolchain for T-16. See the [audit and traceability reports](https://github.com/samuelindra123/xynoos-cyber-model/tree/51c4d1cf2faa3b3b639c3e18d6fa79fc8a5515b6/docs/reports), [remediation handoff](https://github.com/samuelindra123/xynoos-cyber-model/blob/9f9dd8a2750e74e196feeac8defde4bd2f3d78ef/docs/design/TASK-002-D-REMEDIATION-HANDOFF.md), and [PR #2](https://github.com/samuelindra123/xynoos-cyber-model/pull/2).
 
-Pekerjaan dilanjutkan dari `70045ba2dfdd65ad9edbe7ba3122d815d28c914a` di `feat/task-002-b-numerical-foundation`. Implementasi C-001 dan sembilan tes kapasitas sudah tersedia di `56c874b90374804e9b34faecb10d36f3dda386fc`. CI pada head awal lulus. Commit `8a3719f9ba8d0b9c847a87189b97a96318d893e5` menambahkan validasi batas proyek, kontrol negatif, pin toolchain, dan pembaruan kontrak. [CI head awal](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45530208545)
+Work continued from `70045ba2dfdd65ad9edbe7ba3122d815d28c914a` on `feat/task-002-b-numerical-foundation`. The C-001 implementation and nine capacity tests were already present in `56c874b90374804e9b34faecb10d36f3dda386fc`; CI passed on that initial head. Commit `8a3719f9ba8d0b9c847a87189b97a96318d893e5` added project-boundary validation, negative controls, toolchain pinning, and contract updates. See [initial CI](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45530208545).
 
-## C-001 dan kontrak kapasitas
+## C-001 and the capacity contract
 
-Pilihan C-001 adalah menolak kapasitas berlebih. `TensorLimits` membatasi `len * size_of::<f32>()` dan `capacity * size_of::<f32>()` hingga 64 MiB per tensor, dengan opsi batas lebih rendah. `from_vec` memvalidasi payload dan panjang, lalu memeriksa kapasitas sebelum menyalin shape. Buffer yang lolos tetap memakai alokasi asli dan boleh menyimpan kapasitas cadangan dalam batas. Kegagalan mengonsumsi dan melepas `Vec` yang diserahkan. Pilihan ini menghindari salinan nilai dan membuat penolakan teramati melalui `RetainedCapacityLimitExceeded { bytes, limit }`. Perkalian kapasitas yang meluap menghasilkan `RetainedCapacityByteCountOverflow`. Buffer baru yang dibuat melalui `try_reserve_exact` diperiksa berdasarkan kapasitas yang dilaporkan sebelum nilai ditulis. [Kontrak API](../../crates/xynoos-tensor/README.md) · [Kebijakan komputasi](../COMPUTE_POLICY.md)
+The C-001 decision is to reject excess retained capacity. `TensorLimits` limits both `len * size_of::<f32>()` and `capacity * size_of::<f32>()` to 64 MiB per tensor, with support for lower limits. `from_vec` validates payload and length, then checks capacity before copying the shape. An accepted tensor retains the original allocation, including spare capacity within budget. On failure, the consumed `Vec` is dropped. This avoids copying values and reports rejection through `RetainedCapacityLimitExceeded { bytes, limit }`. Capacity multiplication overflow produces `RetainedCapacityByteCountOverflow`. Newly collected buffers reserved with `try_reserve_exact` are checked against their reported capacity before values are written. See the [tensor API contract](../../crates/xynoos-tensor/README.md) and [compute policy](../COMPUTE_POLICY.md).
 
-Sepuluh tes kapasitas lulus di kedua profil. Cakupannya meliputi adopsi tanpa salin dengan pemeriksaan pointer, kapasitas tepat pada dan di atas anggaran, vektor kosong dengan dan tanpa kapasitas pada anggaran nol, scalar, prioritas kesalahan panjang, overflow aritmetis, serta kapasitas konstruktor dan hasil operasi. Tes tambahan menerima hitungan kapasitas tepat pada 64 MiB dan menolak satu `f32` lebih banyak melalui pemeriksaan aritmetis. Tes ini juga memeriksa bahwa permintaan di atas plafon disetarakan dengan batas default. Kasus batas besar memakai hitungan sintetis, sedangkan kasus adopsi memakai vektor kecil.
+Ten capacity tests pass in both profiles. They cover pointer-checked zero-copy adoption, capacities at and above the budget, empty vectors with and without capacity under a zero-byte budget, scalars, length-error precedence, arithmetic overflow, and constructor and operation output capacity. Additional tests accept a synthetic capacity exactly at 64 MiB and reject one `f32` more using arithmetic checks. Requests above the ceiling are clamped to the default maximum. Large-boundary cases use synthetic counts; adoption cases use small vectors.
 
-## Bukti oracle
+## Oracle evidence
 
-Python 3.12.3 pada CI meregenerasi fixture byte demi byte dengan seed `0x58594e4f`, 295 kasus, dan 2.670 nilai keluaran. SHA-256 fixture adalah `cdfde7ba9f44f46ba7e757157019730e1124bcd966e796b73286bddf3894fa0f`. Perbandingan finite memakai `atol=1e-6` dan `rtol=1e-5`, NaN dibandingkan berdasarkan klasifikasi, dan infinity berdasarkan tanda.
+CI's Python 3.12.3 regenerated the fixture byte-for-byte with seed `0x58594e4f`, 295 cases, and 2,670 output values. Fixture SHA-256: `cdfde7ba9f44f46ba7e757157019730e1124bcd966e796b73286bddf3894fa0f`. Finite comparisons use `atol=1e-6` and `rtol=1e-5`; NaNs are compared by classification and infinities by sign.
 
-Pembaca fixture Rust yang sama menjalankan fixture lengkap, kontrol positif `1 + 2 = 3`, dan enam variasi independen atas satu rekaman di memori. Ketika input ditolak, harness mencocokkan diagnostik yang diharapkan. Keenam diagnostik berikut muncul di log debug dan release. [Log job](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45540891961/job/138958846528)
+The same Rust fixture consumer runs the complete fixture, a hand-calculated `1 + 2 = 3` positive control, and six independent in-memory mutations. The harness checks expected diagnostics on rejection. All six diagnostics were observed in debug and release CI logs: [job log](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45540891961/job/138958846528).
 
-| Mutasi rekaman | Diagnostik yang teramati |
+| Record mutation | Observed diagnostic |
 |---|---|
-| Hapus field terakhir | `line 2: invalid fixture record` |
-| Ganti operasi `add` dengan `unknown` | `line 2: unknown operation unknown` |
-| Ganti word keluaran dengan `not-hex` | `invalid binary32 fixture value` dengan `InvalidDigit` |
-| Ganti shape keluaran scalar `[]` dengan `[1]` | `line 2: add output shape` |
-| Sisipkan nilai keluaran kedua | `line 2: add output count` |
-| Ganti nilai harapan 3 dengan 4 | `line 2: add output 0: expected 4.0, got 3.0` |
+| Remove the last field | `line 2: invalid fixture record` |
+| Replace `add` with `unknown` | `line 2: unknown operation unknown` |
+| Replace output word with `not-hex` | `invalid binary32 fixture value` with `InvalidDigit` |
+| Change scalar output shape `[]` to `[1]` | `line 2: add output shape` |
+| Add a second expected output value | `line 2: add output count` |
+| Change expected value 3 to 4 | `line 2: add output 0: expected 4.0, got 3.0` |
 
-## Toolchain dan hasil GitHub Actions
+## Toolchain and GitHub Actions results
 
-`rust-toolchain.toml` menetapkan Rust 1.100.0, profil minimal, rustfmt dan Clippy. Versi ini sama dengan rilis yang dipakai oleh validasi sebelumnya. Uji instalasi lokal memunculkan peringatan deprekasi untuk instalasi implisit melalui `rustup show`, sehingga workflow memakai `rustup install --no-self-update` dari root repository. CI memverifikasi versi `rustc` terhadap pin, mencatat versi alat, dan menjalankan Cargo dengan lockfile secara offline setelah memasang toolchain. Workflow memakai satu job GitHub-hosted Ubuntu 24.04, timeout 15 menit, maksimal dua job build Cargo, izin `contents: read`, dan pembatalan run yang tergantikan.
+`rust-toolchain.toml` pins Rust 1.100.0 with the minimal profile, rustfmt, and Clippy. A local installation attempt showed a deprecation warning for implicit installation through `rustup show`; the workflow therefore runs `rustup install --no-self-update` at the repository root. CI verifies `rustc` against the pin, records tool versions, and runs locked Cargo commands offline after installation. The workflow has one GitHub-hosted Ubuntu 24.04 job, a 15-minute timeout, at most two Cargo build jobs, read-only `contents` permission, and cancellation of superseded runs.
 
-Run `45540891961` menyelesaikan seluruh langkah dengan sukses. Log checkout mencatat `8a3719f9ba8d0b9c847a87189b97a96318d893e5` dan `rustc 1.100.0 (0ef1bc386 2026-11-09)`. Kolom hasil di bawah merujuk ke run tersebut. SHA head final dan CI yang menguji commit laporan ini dicatat di deskripsi PR #2 setelah verifikasi. [Run validasi](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45540891961) · [Pemeriksaan head PR #2](https://github.com/samuelindra123/xynoos-cyber-model/pull/2/checks)
+Run `45540891961` passed all steps. Its checkout log records `8a3719f9ba8d0b9c847a87189b97a96318d893e5` and `rustc 1.100.0 (0ef1bc386 2026-11-09)`. See [the run](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45540891961) and [PR #2 checks](https://github.com/samuelindra123/xynoos-cyber-model/pull/2/checks).
 
-| Pemeriksaan | Hasil |
+| Check | Result |
 |---|---|
-| Revisi checkout, berkas wajib, Markdown, dan YAML | Lulus |
-| Kebijakan privasi dan artefak | Lulus untuk 44 berkas terlacak |
-| Pin Rust, `cargo metadata --locked --offline`, dan `cargo fmt --all -- --check` | Lulus |
-| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | Lulus |
-| `python3 tools/numerical_oracle.py --check` | Lulus, 295 kasus dan 2.670 nilai |
-| `cargo test --workspace --locked --offline -- --show-output` | Lulus, 13 unit, 10 kontrak/properti, 8 oracle, 1 doctest |
-| `cargo test --workspace --release --locked --offline -- --show-output` | Lulus, 13 unit, 10 kontrak/properti, 8 oracle, 1 doctest |
-| `RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked --offline` | Lulus |
+| Checkout revision, required files, Markdown, and YAML | Passed |
+| Privacy and artifact policy | Passed for 44 tracked files |
+| Rust pin, `cargo metadata --locked --offline`, and `cargo fmt --all -- --check` | Passed |
+| Clippy with warnings denied | Passed |
+| Oracle regeneration | Passed: 295 cases and 2,670 outputs |
+| Debug workspace tests and doctests | Passed: 13 unit, 10 contract/property, 8 oracle, 1 doctest |
+| Release workspace tests and doctests | Passed: 13 unit, 10 contract/property, 8 oracle, 1 doctest |
+| Rust documentation build | Passed |
 
-## Batas yang masih berlaku
+## Remaining limitations
 
-Anggaran tensor meliputi kapasitas numerik yang dilaporkan `Vec`. Metadata, overhead dan pembulatan yang tersembunyi pada allocator, agregat tensor hidup, RSS, dan OS overcommit berada di luar anggaran. Tes sengaja memakai input kecil dan overflow sintetis. Biaya `matmul` dapat mencapai O(mkn), dengan pembatasan kerja tetap menjadi tanggung jawab pemanggil.
+The tensor budget covers numerical capacity reported by `Vec`. It excludes shape metadata, allocator overhead and hidden rounding, aggregate live tensors, RSS, and OS overcommit. Tests intentionally use small inputs and synthetic overflow cases. Matmul work can be O(mkn), so callers remain responsible for bounding computation.
 
-Oracle memberi bukti atas fixture terpilih dan jalur penolakan pembaca yang diuji. `math.fsum` pada oracle dan akumulasi binary64 berurutan pada Rust dapat berbeda untuk pembatalan ekstrem. Pengujian ini tidak menetapkan akurasi universal atau kesetaraan bit lintas target. Pin Rust mencakup toolchain. Versi Python dan image runner dapat bergerak, dan pemindaian privasi tetap bersifat heuristik.
+The oracle provides evidence for selected fixtures and tested parser rejection paths. Python `math.fsum` and Rust's sequential binary64 accumulation may differ under extreme cancellation. These tests establish neither universal accuracy nor bitwise equivalence across targets. The Rust toolchain is pinned, while Python and runner images may change; privacy scanning remains heuristic.
 
-## Handoff verifikasi ulang Session A
+## Session A re-verification handoff
 
-1. Ambil SHA head dan URL CI dari deskripsi PR #2. Cocokkan SHA dengan `headRefOid`, metadata `headSha` run dan baris `Tested commit` di job. Pastikan run dan semua langkah wajib berstatus `success`.
-2. Tinjau `Tensor::from_vec`, `collect_data`, dan dua varian error kapasitas. Cocokkan urutan validasi, pemeriksaan kapasitas sebelum menulis, adopsi pointer, kasus anggaran nol, serta batas sintetis 64 MiB dengan kontrak tertulis. [Kode tensor](../../crates/xynoos-tensor/src/tensor.rs) · [Error bertipe](../../crates/xynoos-tensor/src/error.rs)
-3. Cocokkan hasil kontrol positif, enam mutasi dan seed dengan log debug dan release. Jalankan `python3 tools/numerical_oracle.py --check` dan `cargo test -p xynoos-tensor --test numerical_oracle --locked --offline -j 1 -- --show-output` bila ingin mereproduksi diagnostik secara lokal. [Pembaca fixture dan kontrol](../../crates/xynoos-tensor/tests/numerical_oracle.rs)
-4. Cocokkan toolchain yang tercatat dengan `rust-toolchain.toml` dan tinjau batas job, izin, serta perintah Cargo offline. Catat keputusan independen untuk C-001 dan T-15/T-16 pada SHA yang diperiksa. Gunakan checkout kanonis dengan kebijakan satu worktree. [Pin toolchain](../../rust-toolchain.toml) · [Workflow](../../.github/workflows/ci.yml) · [Kebijakan workspace](../../AGENTS.md)
+1. Compare PR #2's head SHA and CI URL with its `headRefOid`, the run's `headSha`, and the job's tested-commit line; require all steps to succeed.
+2. Review `Tensor::from_vec`, `collect_data`, and capacity errors against validation order, pre-write capacity checking, pointer adoption, zero-budget behavior, and synthetic 64 MiB boundaries. See [tensor implementation](../../crates/xynoos-tensor/src/tensor.rs) and [typed errors](../../crates/xynoos-tensor/src/error.rs).
+3. Match the positive control, six mutations, and seed against debug and release logs. Reproduce with `python3 tools/numerical_oracle.py --check` and `cargo test -p xynoos-tensor --test numerical_oracle --locked --offline -j 1 -- --show-output` if desired. See the [fixture consumer](../../crates/xynoos-tensor/tests/numerical_oracle.rs).
+4. Compare the pinned toolchain with CI's version, limits, permissions, and offline Cargo commands. Record independent C-001, T-15, and T-16 verdicts on the reviewed head, using the canonical single-worktree policy. See [toolchain pin](../../rust-toolchain.toml), [workflow](../../.github/workflows/ci.yml), and [workspace policy](../../AGENTS.md).
