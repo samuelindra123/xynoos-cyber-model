@@ -59,7 +59,7 @@ GitHub Actions provides bounded repository and numerical checks. Future mileston
 
 ## Current status
 
-**Early-stage research and development.** The completed TASK 002 numerical foundation is a safe Rust tensor library for CPU execution. It provides dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. TASK 003-B implements bounded first-order reverse-mode differentiation, mean squared error, and transactional SGD. Its draft implementation is pending independent review. [Tensor contracts](crates/xynoos-tensor/README.md) · [Autograd API](crates/xynoos-autograd/README.md)
+**Early-stage research and development.** The accepted numerical engine is a safe Rust CPU tensor library with dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. TASK 003 adds bounded first-order reverse-mode autodiff, mean squared error, and transactional SGD. A native test demonstrates those gradients learning a synthetic linear regression from five fixed samples. This is not language-model training: no tokenizer, Transformer, trained language model, checkpoint system, or inference runtime exists. [Tensor contracts](crates/xynoos-tensor/README.md) · [Autograd API](crates/xynoos-autograd/README.md) · [TASK 003 acceptance](docs/reports/TASK-003-D-FINAL-ACCEPTANCE-REPORT.md)
 
 ## Roadmap
 

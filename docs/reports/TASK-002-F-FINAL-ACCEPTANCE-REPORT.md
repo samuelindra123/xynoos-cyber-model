@@ -22,11 +22,11 @@ This report records owner-authorized integration of the numerical foundation, pl
 | [PR #1 — planning](https://github.com/samuelindra123/xynoos-cyber-model/pull/1) | Squash into `main` | Merged after exact-head CI passed on `2ae7e83c395ef64f22e68b7429ae829710586fc6`; merge commit `73e03fb96bfadce08b5e83aa9da86a6f3398486e`. |
 | [PR #2 — implementation](https://github.com/samuelindra123/xynoos-cyber-model/pull/2) | Squash into `main` after all required checks | Merged after exact-head CI passed on `c2d318c2d5cbc8ae273bd779d72aa8431cc767ba` ([run 45542774938](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542774938)); merge commit `6de65b2afceeaed7148edf7b8a90fa5b30c19447`. Post-merge CI passed on the merge commit in [run 45542886622](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542886622). The final closure-record revision is separately validated below. |
 
-Planning documents remain explicitly framed as proposals and historical records. Current README and API documentation define actual capabilities. Roadmap marks TASK 002 implementation and review complete with final acceptance contingent on integration and post-merge CI. TASK 001, TASK 002-A/B/C/D/E reports are preserved. TASK 002-D has been faithfully translated into professional English without changing its recorded results, claims, or limitations; its previous text remains recoverable from Git history.
+Planning documents remain explicitly framed as proposals and historical records. Current README and API documentation define actual capabilities. The roadmap marks TASK 002 implementation and review complete. TASK 001, TASK 002-A/B/C/D/E reports are preserved. TASK 002-D has been faithfully translated into professional English without changing its recorded results, claims, or limitations; its previous text remains recoverable from Git history.
 
 ## Validation and regression requirements
 
-Final implementation CI passed foundation and repository hygiene checks, privacy/artifact checks, pinned toolchain installation, locked offline Cargo resolution, formatting, Clippy with warnings denied, debug and release tests, doctests, oracle regeneration and integration tests, retained-capacity regression tests, and Rust documentation build. The exact final implementation PR head passed run 45542774938; post-merge CI on the merge commit passed run 45542886622. The expected count remains 32 tests in each profile: 13 unit, 10 contract/property, 8 oracle, and 1 doctest. No production numerical code changed after independent acceptance. Record exact final-head and post-merge CI URLs and outcomes before declaring milestone closure.
+Final implementation CI passed foundation and repository hygiene checks, privacy/artifact checks, pinned toolchain installation, locked offline Cargo resolution, formatting, Clippy with warnings denied, debug and release tests, doctests, oracle regeneration and integration tests, retained-capacity regression tests, and Rust documentation build. The exact final implementation PR head passed [run 45542774938](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542774938); post-merge CI on the merge commit passed [run 45542886622](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542886622). The final integrated `main` revision is `c5250543e5a39b087b7daab3d86d69a2af65a703`; post-merge run [45543055437](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45543055437) succeeded on that revision. The expected count remains 32 tests in each profile: 13 unit, 10 contract/property, 8 oracle, and 1 doctest. No production numerical code changed after independent acceptance.
 
 ## Resource safety contracts
 
@@ -44,10 +44,10 @@ The repository description was updated to: “An open-source research project de
 
 - [x] PR #3 merged into the implementation branch; audit evidence preserved.
 - [x] PR #1 merged into `main`; planning record preserved.
-- [ ] PR #2 merged into `main` after exact-head checks.
-- [ ] Final integrated CI passed on PR #2 head.
-- [ ] Post-merge CI passed on resulting `main` SHA.
-- [ ] Final `main` SHA, merge SHA, CI links, and test results recorded.
-- [ ] Canonical local checkout synchronized, clean, and limited to one working tree.
+- [x] PR #2 merged into `main` after exact-head checks.
+- [x] Final integrated CI passed on PR #2 head.
+- [x] Post-merge CI passed on resulting `main` SHA.
+- [x] Final `main` SHA, merge SHA, CI links, and test results recorded.
+- [x] Canonical local checkout verified at the accepted baseline before TASK 003 planning; one working tree is maintained.
 
 **Milestone status:** TASK 002 is accepted and merged. The implementation-head run passed all required checks; post-merge validation passed on `main` as recorded above.
