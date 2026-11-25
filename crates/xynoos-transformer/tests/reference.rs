@@ -970,14 +970,20 @@ fn candidate_b1_t32() {
     let forward_live = model.parameters().accounted_bytes();
     let loss = run.loss();
     let error = run.gradients().unwrap_err();
-    assert!(matches!(
+    assert_eq!(
         error,
         Error::Autograd(A::WorkLimit {
             pass: Pass::Backward,
+            requested: 152_581_015,
             limit: 100_000_000,
-            ..
         })
-    ));
+    );
+    assert_eq!(baseline, 3_669_304);
+    assert_eq!(model.initialization_work(), 20_118_280);
+    assert_eq!(metrics.forward_work, 66_894_756);
+    assert_eq!(forward_peak, 9_658_268);
+    assert_eq!(loss.to_bits(), 5.736_882_f32.to_bits());
+    assert_eq!(model.parameters().peak_accounted_bytes(), forward_peak);
     assert_eq!(model.parameters().accounted_bytes(), baseline);
     assert!(
         model
@@ -1118,3 +1124,6 @@ fn operation_tables_match_independent_values_and_vjps() {
     act.report("operation tables forward");
     backward.report("operation tables adjoints");
 }
+
+#[path = "reference/candidate.rs"]
+mod candidate;

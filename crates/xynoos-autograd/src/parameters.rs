@@ -17,6 +17,7 @@ pub struct ParameterSet {
     pub(crate) budget: Budget,
     owner: u64,
     revision: u64,
+    candidate_inventory: bool,
     parameters: Table<Parameter>,
 }
 
@@ -41,11 +42,32 @@ pub struct GradientBatch {
     pub(crate) gradients: Table<Option<OwnedTensor>>,
 }
 
+impl GradientBatch {
+    /// Parameter-set revision captured when the batch was transferred.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Read the transferred gradient for an ID from the originating set.
+    pub fn gradient(&self, id: ParameterId) -> Result<Option<&Tensor>, Error> {
+        if id.owner != self.owner {
+            return Err(Error::InvalidParameterId);
+        }
+        let slot = self
+            .gradients
+            .entries
+            .get(id.index)
+            .ok_or(Error::InvalidParameterId)?;
+        Ok(slot.as_ref().map(|value| &value.tensor))
+    }
+}
+
 impl ParameterSet {
     pub fn new(limits: ResourceLimits) -> Result<Self, Error> {
         Ok(Self {
             owner: identity()?,
             revision: 0,
+            candidate_inventory: false,
             budget: Budget::new(limits),
             parameters: Table::empty(),
         })
@@ -86,6 +108,19 @@ impl ParameterSet {
         }
         set.parameters = Table::allocate(&set.budget, entries)?;
         Ok(set)
+    }
+
+    /// Reserve an inventory for the fixed TASK 005 candidate, whose context
+    /// cap is 128. The complete inventory is validated when recording an
+    /// opted-in candidate evaluation. Ordinary tapes retain ordinary limits.
+    pub fn with_candidate_reference_inventory(limits: ResourceLimits) -> Result<Self, Error> {
+        let mut set = Self::with_inventory(limits, 74, 914_400, 131)?;
+        set.candidate_inventory = true;
+        Ok(set)
+    }
+
+    pub(crate) fn has_candidate_inventory(&self) -> bool {
+        self.candidate_inventory
     }
 
     /// Generate a finite parameter inside the accounting ledger.
@@ -219,7 +254,15 @@ impl ParameterSet {
 
     /// Consume a batch from this set at the current revision and commit all
     /// gradient additions together. An error also consumes the batch.
-    pub fn accumulate_gradients(&mut self, mut batch: GradientBatch) -> Result<(), Error> {
+    pub fn accumulate_gradients(&mut self, batch: GradientBatch) -> Result<(), Error> {
+        self.accumulate_gradients_with_work(batch).map(|_| ())
+    }
+
+    /// Accumulate transactionally and return the work charged on success.
+    pub fn accumulate_gradients_with_work(
+        &mut self,
+        mut batch: GradientBatch,
+    ) -> Result<usize, Error> {
         if batch.owner != self.owner {
             return Err(Error::WrongParameterSet);
         }
@@ -276,7 +319,7 @@ impl ParameterSet {
                 parameter.gradient = Some(incoming);
             }
         }
-        Ok(())
+        Ok(work)
     }
 
     pub(crate) fn batch(&self) -> Result<GradientBatch, Error> {

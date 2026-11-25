@@ -12,7 +12,10 @@ pub use budget::ResourceLimits;
 pub use error::{AutogradError, Pass, Stage};
 pub use parameters::{GradientBatch, ParameterId, ParameterSet, Sgd};
 pub use reference::ReferenceBatch;
-pub use tape::{Tape, TapeMetrics, ValueId};
+pub use tape::{
+    CandidateReferenceExperimentPolicy, ReferenceTransformerBackward,
+    ReferenceTransformerEvaluation, Tape, TapeMetrics, ValueId,
+};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

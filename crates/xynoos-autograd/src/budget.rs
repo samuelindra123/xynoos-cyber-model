@@ -108,6 +108,12 @@ impl Budget {
     }
 
     #[cfg(test)]
+    pub(crate) fn observe_charged_bytes(&self) -> impl Fn() -> usize + use<> {
+        let ledger = Rc::clone(&self.used);
+        move || ledger.current.get()
+    }
+
+    #[cfg(test)]
     pub(crate) fn fail_allocation_after(&self, successes: usize) {
         self.used.fail_allocation_after.set(Some(successes));
     }

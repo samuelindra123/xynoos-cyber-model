@@ -12,6 +12,7 @@ FIXTURES = ROOT / "crates/xynoos-transformer/tests/fixtures"
 SEED = 0x58594E4F4F530005
 TINY = dict(v=260, d=16, n=1, h=2, f=48, context=8)
 SMALL = dict(v=292, d=32, n=4, h=4, f=96, context=64)
+CANDIDATE = dict(v=292, d=96, n=8, h=4, f=256, context=128)
 
 
 def f32(value):
@@ -440,10 +441,111 @@ def generate():
                 primitive_records=primitive_records)
 
 
+def binary32_checksum(values):
+    """FNV-1a over the little-endian binary32 byte stream."""
+    checksum = 0xCBF29CE484222325
+    for value in values:
+        for byte in struct.pack("<f", value):
+            checksum = ((checksum ^ byte) * 0x100000001B3) & ((1 << 64) - 1)
+    return f"{checksum:016x}"
+
+
+def gradient_summary(values):
+    assert all(map(math.isfinite, values))
+    return dict(l1=total(map(abs, values)), l2_squared=dot(values, values),
+                max_abs=max(map(abs, values)))
+
+
+def generate_candidate():
+    config = CANDIDATE
+    params = dict(initialized(config))
+    d = config["d"]
+    original = list(range(33))
+    repeated = original.copy()
+    repeated[17] = repeated[3]
+
+    def batch(tokens):
+        return dict(shape=[1, 32], input=tokens[:-1], target=tokens[1:],
+                    valid=[1]*32, loss=[1]*32)
+
+    batch_original, batch_repeated = batch(original), batch(repeated)
+    assert batch_repeated["input"].count(3) == 2
+    logits, loss, grad, paths = evaluate(config, params, batch_original)
+    _, repeated_loss, repeated_grad, repeated_paths = evaluate(config, params, batch_repeated)
+    assert len(logits) == 32*config["v"]
+    assert sum(map(len, params.values())) == 914400
+
+    records = []
+    for entry, (name, shape) in enumerate(inventory(**config)):
+        values = grad[name]
+        # Fixed positions in three regions, offset by inventory index.
+        region = len(values)//3
+        indexes = [entry % region, region + (13*entry) % region,
+                   len(values) - 1 - entry % region]
+        if name == "embedding":
+            # Tokens present in lookup, a token absent from lookup, and the final row.
+            indexes = [1, 3*d+17, 17*d+31, 31*d+41, 255*d+53, len(values)-1]
+        assert len(indexes) == len(set(indexes))
+        records.append(dict(name=name, shape=shape, indexes=indexes,
+                            gradient=bits(values[i] for i in indexes),
+                            summary=gradient_summary(values),
+                            init_checksum=binary32_checksum(params[name])))
+
+    def tied_record(gradient, components):
+        lookup, output = components
+        assert gradient == [f32(a+b) for a, b in zip(lookup, output)]
+        # Compare complete E against separate per-path aggregates and selected coordinates.
+        indexes = records[0]["indexes"]
+        assert all(lookup[i] != 0 and output[i] != 0 for i in indexes[:2])
+        assert lookup[indexes[-2]] == 0 and output[indexes[-2]] != 0
+        for label, omitted in (("lookup", output), ("output", lookup)):
+            error = max(abs(a-b) for a, b in zip(omitted, gradient))
+            assert any(abs(a-b) > 2e-5 + 2e-5*abs(b) for a, b in zip(omitted, gradient))
+            print(f"Candidate E omission control {label}: max abs disagreement {error:.9g}")
+        return dict(indexes=indexes, lookup=bits(lookup[i] for i in indexes),
+                    output=bits(output[i] for i in indexes),
+                    combined=bits(gradient[i] for i in indexes),
+                    summary=gradient_summary(gradient))
+
+    # Use the original batch for FD. Choose positions from the analytic
+    # inventory, visiting every block and every family deterministically.
+    fd_records = [records[0], *(records[1 + family + 9*(family % config["n"])]
+                                for family in range(9)), records[-1]]
+    fd = [dict(name=record["name"], index=index)
+          for record in fd_records for index in (record["indexes"][:2]
+                                                 if record["name"] == "embedding"
+                                                 else record["indexes"][1:2])]
+
+    doc = dict(schema_version=1, architecture_version=1, config=config,
+                seed=f"0x{SEED:016x}", batch=batch_original,
+                logits=bits(logits), loss=bits(loss)[0], parameters=records,
+                finite_differences=fd, embedding=tied_record(grad["embedding"], paths),
+                repeated=dict(batch=batch_repeated, loss=bits(repeated_loss)[0],
+                              embedding=tied_record(repeated_grad["embedding"], repeated_paths)))
+    # A distinct explicit-parameter evaluation lets the autograd unit test
+    # exercise each native VJP edge before transferring the combined adjoint.
+    _, _, explicit_grad, explicit_paths = evaluate(config, explicit(config), batch_repeated)
+    indexes = records[0]["indexes"]
+    assert all(explicit_paths[0][i] != 0 and explicit_paths[1][i] != 0 for i in indexes[:2])
+    path_records = ["# index lookup output combined, IEEE binary32 little-endian hex"]
+    for index in indexes:
+        entries = [path[index] for path in explicit_paths]
+        combined = explicit_grad["embedding"][index]
+        assert f32(entries[0] + entries[1]) == combined
+        path_records.append(" ".join([str(index), *bits([*entries, combined])]))
+    return doc, ("\n".join(path_records) + "\n").encode("utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--candidate", action="store_true", help="verify the full Gate C fixture")
     args = parser.parse_args()
+    if args.candidate:
+        candidate, paths = generate_candidate()
+        document("candidate.json", candidate, args.check)
+        frozen_payload("candidate-tied-paths.txt", paths, args.check)
+        return
     reference = generate()
     parameters = reference.pop("parameters")
     primitives = reference.pop("primitive_records")
@@ -452,14 +554,22 @@ def main():
                  "parameters.json": dict(schema_version=1, parameters=parameters),
                  "operations.json": dict(schema_version=1, records=primitives)}
     for filename, obj in documents.items():
-        path = FIXTURES / filename
-        payload = (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-        print(f"Transformer {filename}: {len(payload)} bytes, SHA-256 {hashlib.sha256(payload).hexdigest()}")
-        if args.check:
-            if payload != path.read_bytes():
-                raise SystemExit(f"Frozen Transformer fixture differs: {filename}")
-        else:
-            path.write_bytes(payload)
+        document(filename, obj, args.check)
+
+
+def document(filename, obj, check):
+    payload = (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    frozen_payload(filename, payload, check)
+
+
+def frozen_payload(filename, payload, check):
+    path = FIXTURES / filename
+    print(f"Transformer {filename}: {len(payload)} bytes, SHA-256 {hashlib.sha256(payload).hexdigest()}")
+    if check:
+        if payload != path.read_bytes():
+            raise SystemExit(f"Frozen Transformer fixture differs: {filename}")
+    else:
+        path.write_bytes(payload)
 
 
 if __name__ == "__main__":

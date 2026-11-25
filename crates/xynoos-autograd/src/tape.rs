@@ -1,3 +1,10 @@
+mod transformer;
+
+pub use transformer::{
+    CandidateReferenceExperimentPolicy, ReferenceTransformerBackward,
+    ReferenceTransformerEvaluation,
+};
+
 use xynoos_tensor::{Tensor, TensorLimits};
 
 use crate::budget::{add, mul, OwnedTensor, Table};
@@ -290,6 +297,10 @@ impl<'p> Tape<'p> {
 
     /// Execute one deterministic reverse pass. Any error seals the tape.
     pub fn backward_with_seed(&mut self, root: ValueId, seed: f32) -> Result<(), Error> {
+        self.backward_with_limit(root, seed, self.parameters.limits().max_work())
+    }
+
+    fn backward_with_limit(&mut self, root: ValueId, seed: f32, limit: usize) -> Result<(), Error> {
         if !matches!(self.state, State::Recording) {
             return Err(Error::BackwardAlreadyRun);
         }
@@ -300,7 +311,7 @@ impl<'p> Tape<'p> {
             return Err(Error::NonScalarRoot { rank });
         }
         finite(seed, Stage::Seed, 0)?;
-        self.plan_backward(root)?;
+        self.plan_backward(root, limit)?;
         let adjoints = if self.reference.is_some() {
             self.run_reference_backward(root, seed)?
         } else {
@@ -461,13 +472,13 @@ impl<'p> Tape<'p> {
         }
     }
 
-    fn plan_backward(&mut self, root: usize) -> Result<(), Error> {
+    fn plan_backward(&mut self, root: usize, limit: usize) -> Result<(), Error> {
         self.nodes.entries[root].reachable = self.nodes.entries[root].differentiable;
         // Cover the reachability walk, adjoint table initialization, reverse walk and seed.
         let reference = self.reference.as_ref();
         let scans = if reference.is_some() { 5 } else { 3 };
         let mut work = add(mul(self.nodes.entries.len(), scans)?, 2)?;
-        self.parameters.limits().check_work(Pass::Backward, work)?;
+        check_backward_limit(work, limit)?;
         for index in (0..self.nodes.entries.len()).rev() {
             let node = &self.nodes.entries[index];
             if node.reachable {
@@ -496,7 +507,7 @@ impl<'p> Tape<'p> {
             }
         }
         self.backward_work = work;
-        self.parameters.limits().check_work(Pass::Backward, work)
+        check_backward_limit(work, limit)
     }
 
     fn run_reference_backward(
@@ -604,9 +615,21 @@ fn accumulate(target: &mut Tensor, i: usize, contribution: f32) -> Result<(), Er
     Ok(())
 }
 
+fn check_backward_limit(requested: usize, limit: usize) -> Result<(), Error> {
+    if requested > limit {
+        return Err(Error::WorkLimit {
+            pass: Pass::Backward,
+            requested,
+            limit,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ResourceLimits;
 
     #[test]
     fn same_owner_out_of_range_is_rejected_before_lookup() {
@@ -619,6 +642,54 @@ mod tests {
         assert!(matches!(tape.value(id), Err(Error::InvalidValueId)));
         assert_eq!(tape.sum(id), Err(Error::InvalidValueId));
         assert_eq!(tape.backward(id), Err(Error::InvalidValueId));
+    }
+
+    #[test]
+    fn backward_work_boundaries_precede_reverse_allocation() {
+        for limit in [
+            ResourceLimits::MAX_WORK,
+            CandidateReferenceExperimentPolicy::BACKWARD_WORK,
+        ] {
+            assert_eq!(check_backward_limit(limit, limit), Ok(()));
+            assert_eq!(
+                check_backward_limit(limit + 1, limit),
+                Err(Error::WorkLimit {
+                    pass: Pass::Backward,
+                    requested: limit + 1,
+                    limit,
+                })
+            );
+        }
+        let mut set = ParameterSet::new(Default::default()).unwrap();
+        let parameter = set.insert_generated(&[], |_| Ok(1.)).unwrap();
+        let baseline = set.accounted_bytes();
+        let revision = set.revision();
+        let mut tape = Tape::new(&set).unwrap();
+        let root = tape.parameter(parameter).unwrap();
+        tape.backward_with_limit(root, 1., 5).unwrap();
+        assert_eq!(tape.metrics().unwrap().backward_work, 5);
+        drop(tape);
+
+        let mut tape = Tape::new(&set).unwrap();
+        let root = tape.parameter(parameter).unwrap();
+        let recorded = set.accounted_bytes();
+        set.budget.fail_allocation_after(0);
+        assert_eq!(
+            tape.backward_with_limit(root, 1., 4),
+            Err(Error::WorkLimit {
+                pass: Pass::Backward,
+                requested: 5,
+                limit: 4,
+            })
+        );
+        assert_eq!(set.accounted_bytes(), recorded);
+        assert_eq!(tape.gradient(root).unwrap_err(), Error::BackwardRequired);
+        drop(tape);
+        assert_eq!(set.accounted_bytes(), baseline);
+        assert_eq!(set.revision(), revision);
+        assert_eq!(set.value(parameter).unwrap().data(), [1.]);
+        assert!(set.gradient(parameter).unwrap().is_none());
+        println!("TASK005-R exact and one-over work boundaries for 100M and 160M, plus actual small-graph pre-allocation rejection");
     }
 
     #[test]
