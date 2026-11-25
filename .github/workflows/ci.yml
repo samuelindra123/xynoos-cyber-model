@@ -7,6 +7,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  CARGO_BUILD_JOBS: 2
+  RUSTUP_TOOLCHAIN: stable
+
 permissions:
   contents: read
 
@@ -16,12 +20,22 @@ concurrency:
 
 jobs:
   validate:
-    name: Repository foundation checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    name: Repository foundation and numerical checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify checkout revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git log -1 --format='Tested commit %H'
 
       - name: Validate required files and repository hygiene
         shell: bash
@@ -76,3 +90,36 @@ jobs:
             YAML.load_file(path, aliases: true)
             puts "Valid YAML: #{path}"
           end
+
+      - name: Validate tracked privacy and artifact policy
+        run: python3 tools/check_repository.py
+
+      - name: Install and record stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustc --version --verbose
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
+
+      - name: Check locked workspace and formatting
+        run: |
+          cargo metadata --locked --offline --format-version 1 > /dev/null
+          cargo fmt --all -- --check
+
+      - name: Run Clippy with warnings denied
+        run: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+
+      - name: Regenerate and verify independent oracle fixtures
+        run: python3 tools/numerical_oracle.py --check
+
+      - name: Run debug tests and doctests, including the oracle
+        run: cargo test --workspace --locked --offline
+
+      - name: Run release tests and doctests, including the oracle
+        run: cargo test --workspace --release --locked --offline
+
+      - name: Build Rust documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --locked --offline

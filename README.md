@@ -6,7 +6,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Status: Research](https://img.shields.io/badge/status-early--stage%20research-lightgrey.svg)](docs/ROADMAP.md)
 
-XYNOOS Cyber-Model is an independent, early-stage research project to develop a specialized language model and native machine-learning infrastructure, with a CPU-first and hardware-agnostic design. Rust and C are the primary implementation languages; Python may support research, data processing, and validation.
+XYNOOS Cyber-Model is an independent, early-stage research project to develop a specialized language model and native machine-learning infrastructure, with a CPU-first and hardware-agnostic design. The numerical foundation uses safe Rust, with Python for independent validation. C remains a possible future implementation language.
 
 The project is not a wrapper around commercial AI APIs. The long-term research objective is to train model weights independently from random initialization. No trained model, domain capability, benchmark result, or production runtime is claimed to exist today.
 
@@ -49,17 +49,17 @@ flowchart LR
     I -. data quality feedback .-> B
 ```
 
-Potential modules include tensor operations, differentiation, embeddings, transformer blocks, attention, normalization, losses, optimizers, checkpoint serialization, inference, quantization, dataset pipelines, and evaluation. Optional retrieval infrastructure may be considered later. These are proposed areas, not implemented features.
+Future modules include differentiation, embeddings, transformer blocks, attention, normalization, losses, optimizers, checkpoint serialization, inference, quantization, dataset pipelines, and evaluation. Optional retrieval infrastructure may be considered later. These are proposed areas, not implemented features.
 
 ## Development and compute strategy
 
 Local work is limited to source and documentation changes, formatting, static checks, small numerical or tokenizer experiments, lightweight inference checks, and bounded smoke tests. Large training runs, large dataset downloads, prolonged CPU saturation, and unbounded allocations are not run automatically on developer machines.
 
-GitHub Actions will provide bounded CI and, in future milestones, manually triggered controlled experiments. Jobs should have timeouts, concurrency limits, deterministic seeds where appropriate, bounded inputs, and explicit artifact retention. Actions are not unlimited general-purpose compute: experiments must fit platform policies, resource limits, and available billing allowances. Work beyond those limits requires dedicated research compute or external cloud infrastructure; paid infrastructure requires explicit authorization.
+GitHub Actions provides bounded repository and numerical checks. Future milestones may add manually triggered controlled experiments. Jobs should have timeouts, concurrency limits, deterministic seeds where appropriate, bounded inputs, and explicit artifact retention. Actions are not unlimited general-purpose compute: experiments must fit platform policies, resource limits, and available billing allowances. Work beyond those limits requires dedicated research compute or external cloud infrastructure; paid infrastructure requires explicit authorization.
 
 ## Current status
 
-**Early-stage research and development.** This milestone establishes repository governance and documentation only. No model implementation, tokenizer, dataset, trained weights, inference runtime, or performance benchmark is included.
+**Early-stage research and development.** The first numerical component is a safe Rust tensor library for CPU execution. It provides dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. Model implementation, tokenization, datasets, training, inference, and benchmarking remain future work. [Tensor API and numerical contracts](crates/xynoos-tensor/README.md)
 
 ## Roadmap
 
@@ -82,11 +82,13 @@ Future research may explore larger architectures, retrieval, improved technical 
 .
 ├── .github/                 # CI and contribution templates
 ├── benchmarks/              # Benchmark policy and future results
+├── crates/xynoos-tensor/     # Dense CPU tensor reference library
 ├── datasets/                # Dataset governance; no corpus is included
 ├── docs/                    # Architecture, policies, and milestone reports
 ├── experiments/             # Controlled experiment guidance
 ├── models/                  # Model artifact guidance; no weights are included
-└── research/                # Research notes guidance
+├── research/                # Research notes guidance
+└── tools/                   # Bounded oracle and repository checks
 ```
 
 ## Reproducibility

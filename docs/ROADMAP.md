@@ -5,7 +5,7 @@ Milestones are ordered research areas, not delivery dates or completion claims. 
 | Milestone | Scope |
 |---|---|
 | TASK 001 — Repository and Research Foundation | Documentation, license, governance, lightweight CI, and development policies. |
-| TASK 002 — Numerical Computing Foundation | Language and architecture decision records, tensor representation, numerical correctness, memory ownership, matrix operations, and lightweight tests. |
+| TASK 002 — Numerical Computing Foundation | Reference CPU tensor implementation and validation, with independent review tracked separately. [Implementation report](reports/TASK-002-B-IMPLEMENTATION-REPORT.md) |
 | TASK 003 — Differentiation and Optimization | Gradient computation, backpropagation, loss functions, optimizers, and numerical gradient verification. |
 | TASK 004 — Tokenization and Dataset Infrastructure | Tokenizer research, provenance, data processing, and streaming pipelines. |
 | TASK 005 — Language Model Architecture | Embeddings, causal attention, transformer implementation, and forward/backward computation. |

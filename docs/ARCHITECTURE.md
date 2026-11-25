@@ -1,6 +1,6 @@
-# Proposed Architecture
+# Architecture
 
-This document records research directions, not an implemented system design. Interfaces and technology choices should be decided through architecture decision records and evidence in later milestones.
+The native tensor library is the first implemented component. The remaining sections describe research directions for later milestones.
 
 ## Data and representation
 
@@ -8,7 +8,9 @@ Potential stages are source registration, license and provenance review, cleanin
 
 ## Native compute and model
 
-Research may evaluate a native tensor engine, numerical kernels, explicit or automatic gradient computation, embeddings, transformer blocks, causal attention, normalization, loss functions, and optimizers. Rust and C are primary implementation languages; Python may support experiments, dataset tooling, and independent validation. Existing open-source mathematical libraries remain an option when justified.
+The workspace contains one safe Rust crate, `xynoos-tensor`. It owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and bounded fallible allocation. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
+
+Gradient computation, embeddings, transformer blocks, causal attention, normalization, losses, and optimizers remain future work. C kernels and external mathematical dependencies would require a separate review.
 
 ## Training and artifacts
 
