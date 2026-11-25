@@ -203,6 +203,10 @@ jobs:
           done
           cargo test -p xynoos-autograd --locked --offline --release --lib tape::transformer::tests::candidate_failures_release_tape_and_preserve_transactions -- --ignored --exact --nocapture
 
+      - name: Run auditor-authored TASK 005-C2 mathematical control
+        timeout-minutes: 1
+        run: cargo test -p xynoos-transformer --locked --offline --release --test reference candidate::c2_independent_tied_edge_derivative_and_negative_control -- --exact --nocapture
+
       - name: Build Rust documentation
         env:
           RUSTDOCFLAGS: -D warnings

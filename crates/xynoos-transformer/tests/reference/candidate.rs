@@ -7,6 +7,31 @@ use super::*;
 
 const CONFIG: Config = Config::RESEARCH_CANDIDATE;
 
+/// Auditor-authored scalar tied-edge oracle. The two paths share one scalar
+/// parameter x; the objective is 1/2 (lookup(x) + projection(x))^2.
+#[test]
+fn c2_independent_tied_edge_derivative_and_negative_control() {
+    let x = 0.37_f64;
+    let lookup_scale = -0.8_f64;
+    let projection_scale = 1.3_f64;
+    let path_sum = (lookup_scale + projection_scale) * x;
+    let expected = path_sum * (lookup_scale + projection_scale);
+    let h = 1e-5_f64;
+    let objective = |at: f64| {
+        let y = lookup_scale * at + projection_scale * at;
+        0.5 * y * y
+    };
+    let independently_perturbed = (objective(x + h) - objective(x - h)) / (2.0 * h);
+    assert!((expected - independently_perturbed).abs() < 1e-10);
+
+    // Negative control: dropping the output-projection path is a wrong
+    // mathematical expectation and must measurably disagree with the oracle.
+    let omitted_projection = path_sum * lookup_scale;
+    let disagreement = (expected - omitted_projection).abs();
+    assert!(disagreement > 0.1);
+    println!("TASK005-C2 scalar tied-edge negative-control disagreement={disagreement:.12}");
+}
+
 fn model(config: Config, limits: ResourceLimits) -> Transformer {
     Transformer::new(config, &bpe(), SEED, limits).unwrap()
 }
