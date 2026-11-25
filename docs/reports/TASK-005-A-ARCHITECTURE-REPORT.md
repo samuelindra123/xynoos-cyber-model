@@ -77,7 +77,7 @@ Scaling direction remains Experimental 100K–50M, Nano 125M, Micro 350M, Edge 1
 
 ## T. Planning branch and evidence status
 
-Branch `research/task-005-a-transformer-architecture` was created from accepted SHA `334beb088f116240cdd0346a70d9527c26f08e51`. Draft PR [#12](https://github.com/samuelindra123/xynoos-cyber-model/pull/12) targets `main` and remains unmerged. Initial planning head `6af97920f0610156916c1e1e8d97e36e90ae1998` passed Foundation CI run [45573318266](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45573318266), job `139065024111`; the exact-head checkout, hygiene/privacy, locked metadata, formatting, Clippy, all three prior Python oracles, debug/release tests and doctests, deterministic comparisons and Rust docs all succeeded. This evidence is for that head; the final report-only commit below requires a fresh exact-head workflow result before this PR is ready for review.
+Branch `research/task-005-a-transformer-architecture` was created from accepted SHA `334beb088f116240cdd0346a70d9527c26f08e51`. Draft PR [#12](https://github.com/samuelindra123/xynoos-cyber-model/pull/12) targets `main` and remains unmerged. Initial planning head `6af97920f0610156916c1e1e8d97e36e90ae1998` passed Foundation CI run [45573318266](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45573318266), job `139065024111`. The final specification head and its exact-head Foundation CI result are recorded in the PR check and the TASK 005-A completion report; the initial run passed exact checkout, hygiene/privacy, locked metadata, formatting, Clippy, all three prior Python oracles, debug/release tests and doctests, deterministic comparisons and Rust docs.
 
 ## U. Readiness verdict
 
