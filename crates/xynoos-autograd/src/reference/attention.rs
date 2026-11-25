@@ -42,8 +42,10 @@ impl<'a> Attention<'a> {
     }
 
     pub(super) fn probabilities(&self, budget: &Budget) -> Result<Table<f64>, Error> {
-        let mut p = Table::filled(budget, self.state.square()?, 0_f64)?;
+        let cells = self.state.square()?;
+        let mut p = Table::allocate(budget, cells)?;
         tensor_bytes(0, super::mul(p.entries.capacity(), 2)?)?;
+        p.entries.resize(cells, 0_f64);
         for row in 0..self.state.rows() {
             if self.state.valid.entries[row] == 0 {
                 continue;
@@ -150,5 +152,42 @@ impl<'a> Attention<'a> {
             emit(i, x as f32)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ReferenceBatch, ResourceLimits};
+
+    #[test]
+    fn masked_and_future_probabilities_are_exact_zero() {
+        let budget = Budget::new(ResourceLimits::default());
+        let (reference, _) = Reference::new(
+            &budget,
+            ReferenceBatch {
+                shape: [2, 3],
+                input: &[1, 2, 258, 258, 258, 258],
+                target: &[2, 3, 258, 258, 258, 258],
+                valid: Some(&[1, 1, 0, 0, 0, 0]),
+                loss: Some(&[1, 1, 0, 0, 0, 0]),
+            },
+            260,
+            1,
+        )
+        .unwrap();
+        let values = Tensor::from_data(
+            &[2, 3, 2],
+            &[1., 0., 0., 1., 99., 99., 1., 1., 2., 2., 3., 3.],
+            Default::default(),
+        )
+        .unwrap();
+        let attn = Attention::new(&reference, &values, &values, &values);
+        let saved = attn.probabilities(&budget).unwrap();
+        assert_eq!(saved.entries[0], 1.);
+        assert!((saved.entries[3] + saved.entries[4] - 1.).abs() < 1e-15);
+        for i in [1, 2].into_iter().chain(5..18) {
+            assert_eq!(saved.entries[i].to_bits(), 0);
+        }
     }
 }

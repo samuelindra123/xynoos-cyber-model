@@ -35,3 +35,30 @@ The implementation contract is the six TASK 005-A files at
 
 These are explicit interpretations of under-specified evaluation boundaries
 or conflicting wording. Their acceptance is part of the independent review.
+
+## Evidence map
+
+| Requirements | Implementation and evidence |
+|---|---|
+| 1–3, 27, 29, 31 | Pinned planning basis and accepted main in the implementation report, draft PR #13 and exact-head Foundation CI. |
+| 4–7, 9–11 | Native model in `crates/xynoos-transformer`. Fixed-rank operations in `crates/xynoos-autograd/src/reference`. Inventory formula, three exact counts, shape rejections and 7,536 independent initialization values. |
+| 8, 21 | `tools/transformer_oracle.py`, three frozen JSON files, operation outputs and VJPs, all mathematical parameter gradients and 76 four-block coordinates, both finite-difference steps. |
+| 12 | `Transformer::evaluate_batch` and `ReferenceBatch`. TASK 004 integration test fits BPE, streams accepted validation batches and compares partial versus fixed-size output. |
+| 13–15 | Contiguous interleaved head layout, finite-only mask-aware attention, E identity and independent per-path sum, extreme and zero-supervision CE controls. |
+| 16–18 | Native gradient batch and legacy SGD retained. FP64 pending adjoints and all new buffers charged through the native ledger. Initialization, forward, backward, transfer and optimizer work are documented by phase in the resource report. |
+| 19–20 | Both reference gates, measured ledger peaks, and the unchanged B=1,T=32 research configuration with a typed reverse-work blocker. |
+| 22–23 | Executed Python equation mutations, typed Rust failure tests, allocator injection, shape/mask/causality and padding/batch invariance tests. |
+| 24 | Existing Foundation checks and locked fixture regeneration, accepted trajectory and tokenizer digests, new checks reported separately. |
+| 25–26 | Scalar CPU reference, bounded hosted candidate experiment, no optimizer loop or Colab runtime. |
+| 28, 30 | Implementation, resource and traceability reports and separate session handoff. |
+
+## Session A audit
+
+Audit the five interpretation bullets against both pinned mathematical
+documents and the TASK 004 stream. Re-derive the local VJPs and confirm
+the FP32 boundaries, FP64 fan-in order, and exact E identity. Review
+adversarial batch validation, initialized bit patterns, and the disjoint
+legacy/reference tape paths. Inspect all ledger ownership and replacement
+overlap, reproduce the reverse planner's candidate demand, and check the
+exact-head logs and frozen oracle checksums. The candidate requires a
+separate decision before any redesign of the effective reverse phase budget.

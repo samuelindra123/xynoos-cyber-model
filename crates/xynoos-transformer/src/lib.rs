@@ -1,5 +1,6 @@
 //! Native, bounded decoder-only Transformer reference.
 #![forbid(unsafe_code)]
+#![doc = include_str!("../README.md")]
 
 mod config;
 mod init;
