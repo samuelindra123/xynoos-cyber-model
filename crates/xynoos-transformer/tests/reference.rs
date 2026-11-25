@@ -150,10 +150,11 @@ fn mathematical_full_forward_backward_and_tying() {
     let config = Config::MATHEMATICAL;
     let tokenizer = Tokenizer::byte();
     let supplied = parameters(&records, &reference["parameter_order"]);
-    let model = Transformer::from_coordinates(config, &tokenizer, Default::default(), |spec, i| {
-        supplied[spec.index()][i]
-    })
-    .unwrap();
+    let mut model =
+        Transformer::from_coordinates(config, &tokenizer, Default::default(), |spec, i| {
+            supplied[spec.index()][i]
+        })
+        .unwrap();
     assert_eq!(model.parameter_count(), 7_536);
     let baseline = model.parameters().accounted_bytes();
     let revision = model.parameters().revision();
