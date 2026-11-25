@@ -16,7 +16,16 @@ mask 0. Raw batch callers supply the per-document sample boundaries.
 `Evaluation::gradients` consumes the forward pass to return the native
 single-use `GradientBatch`. Dropping an evaluation releases its tape charges.
 `Transformer::accumulate_gradients` applies the native transactional gradient
-accumulation API.
+accumulation API. `Evaluation::backward` can complete the reverse pass
+before transferring its gradients, so the two phases can be measured
+separately.
+
+`Transformer::evaluate_candidate` is the explicit entry point for
+`CandidateReferenceExperimentPolicy`. It admits the exact
+`Config::RESEARCH_CANDIDATE` at `[B,T] = [1,32]` and can raise the reverse
+ceiling to 160,000,000 units. See the
+[versioned amendment](../../docs/design/TASK-005-NORMATIVE-NUMERICAL-AND-RESOURCE-AMENDMENT.md)
+for the binding and numerical contracts.
 
 The model runs FP32 values and parameters with sequential FP64 reductions.
 One embedding parameter snapshot is shared by gather and transposed vocabulary

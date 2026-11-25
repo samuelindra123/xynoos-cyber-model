@@ -48,6 +48,10 @@ pub enum AutogradError {
     TapeSealed,
     EmptyReduction,
     InvalidReferenceShape,
+    InvalidCandidateInventory,
+    InvalidCandidateBatchShape {
+        actual: [usize; 2],
+    },
     InvalidToken {
         index: usize,
         target: bool,

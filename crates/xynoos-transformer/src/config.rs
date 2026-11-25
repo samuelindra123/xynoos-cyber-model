@@ -1,5 +1,7 @@
 use std::fmt;
-use xynoos_autograd::{AutogradError, Pass, ResourceLimits};
+use xynoos_autograd::{
+    AutogradError, CandidateReferenceExperimentPolicy as Candidate, Pass, ResourceLimits,
+};
 use xynoos_tensor::{TensorError, TensorLimits};
 
 /// Dimensions of the fixed TASK 005 reference architecture.
@@ -16,6 +18,8 @@ pub struct Config {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidConfiguration,
+    InvalidCandidateConfiguration { actual: Config },
+    InvalidCandidateBatchShape { actual: [usize; 2] },
     VocabularyMismatch { model: usize, tokenizer: usize },
     InvalidBatchShape,
     InvalidInventory,
@@ -83,12 +87,12 @@ impl Config {
         context: 64,
     };
     pub const RESEARCH_CANDIDATE: Self = Self {
-        vocabulary: 292,
-        width: 96,
-        layers: 8,
-        heads: 4,
-        ffn: 256,
-        context: 128,
+        vocabulary: Candidate::VOCABULARY,
+        width: Candidate::WIDTH,
+        layers: Candidate::LAYERS,
+        heads: Candidate::HEADS,
+        ffn: Candidate::FFN,
+        context: Candidate::CONTEXT,
     };
 
     pub fn parameter_count(self) -> Result<usize, Error> {

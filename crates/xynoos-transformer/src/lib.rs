@@ -7,16 +7,17 @@ mod init;
 
 use std::fmt;
 use xynoos_autograd::{
-    GradientBatch, ParameterId, ParameterSet, ResourceLimits, Tape, TapeMetrics, ValueId,
+    GradientBatch, ParameterId, ParameterSet, ReferenceTransformerBackward,
+    ReferenceTransformerEvaluation, ResourceLimits, TapeMetrics,
 };
 use xynoos_data::Batch;
 use xynoos_tensor::Tensor;
 use xynoos_tokenizer::Tokenizer;
 
 pub use config::{Config, Error};
-pub use xynoos_autograd::ReferenceBatch;
+pub use xynoos_autograd::{CandidateReferenceExperimentPolicy, ReferenceBatch};
 
-use config::{add, check_init_work, mul};
+use config::{add, check_init_work};
 use init::SplitMix;
 
 const BLOCK_NAMES: [&str; 9] = [
@@ -127,8 +128,11 @@ impl Transformer {
         let entries = config.inventory_len()?;
         let init_work = config.initialization_work(count)?;
         check_init_work(limits, init_work)?;
-        let mut parameters =
-            ParameterSet::with_inventory(limits, entries, count, config.inventory_ranks()?)?;
+        let mut parameters = if config == Config::RESEARCH_CANDIDATE {
+            ParameterSet::with_candidate_reference_inventory(limits)?
+        } else {
+            ParameterSet::with_inventory(limits, entries, count, config.inventory_ranks()?)?
+        };
         let mut actual = 0;
         for index in 0..entries {
             insert(&mut parameters, spec_at(config, entries, index))?;
@@ -178,6 +182,11 @@ impl Transformer {
         Ok(self.parameters.accumulate_gradients(batch)?)
     }
 
+    /// Accumulate transactionally and return the work charged on success.
+    pub fn accumulate_gradients_with_work(&mut self, batch: GradientBatch) -> Result<usize, Error> {
+        Ok(self.parameters.accumulate_gradients_with_work(batch)?)
+    }
+
     pub fn evaluate_batch(&self, batch: &Batch) -> Result<Evaluation<'_>, Error> {
         self.evaluate(ReferenceBatch {
             shape: batch.shape(),
@@ -189,58 +198,46 @@ impl Transformer {
     }
 
     pub fn evaluate(&self, batch: ReferenceBatch<'_>) -> Result<Evaluation<'_>, Error> {
-        let config = self.config;
-        config.preflight_batch(
-            batch.shape,
+        self.preflight_batch(batch.shape)?;
+        Ok(Evaluation(ReferenceTransformerEvaluation::record(
+            &self.parameters,
+            batch,
+            self.config.vocabulary,
+            self.config.heads,
+            self.config.layers,
+        )?))
+    }
+
+    /// Evaluate exactly the authorized candidate at B=1 and T=32.
+    /// Only this evaluation's complete backward pass receives the scoped ceiling.
+    pub fn evaluate_candidate(
+        &self,
+        batch: ReferenceBatch<'_>,
+        policy: CandidateReferenceExperimentPolicy,
+    ) -> Result<Evaluation<'_>, Error> {
+        if self.config != Config::RESEARCH_CANDIDATE {
+            return Err(Error::InvalidCandidateConfiguration {
+                actual: self.config,
+            });
+        }
+        if batch.shape != CandidateReferenceExperimentPolicy::BATCH_SHAPE {
+            return Err(Error::InvalidCandidateBatchShape {
+                actual: batch.shape,
+            });
+        }
+        self.preflight_batch(batch.shape)?;
+        Ok(Evaluation(
+            ReferenceTransformerEvaluation::record_candidate(&self.parameters, batch, policy)?,
+        ))
+    }
+
+    fn preflight_batch(&self, shape: [usize; 2]) -> Result<(), Error> {
+        self.config.preflight_batch(
+            shape,
             self.parameters.limits(),
             self.count,
             self.parameters.accounted_bytes(),
-        )?;
-        let mut tape =
-            Tape::for_reference(&self.parameters, batch, config.vocabulary, config.heads)?;
-        let embedding = tape.parameter(self.parameters.id_at(0)?)?;
-        let mut x = tape.embedding(embedding)?;
-        for layer in 0..config.layers {
-            let start = add(mul(layer, 9)?, 1)?;
-            x = self.block(&mut tape, x, start)?;
-        }
-        let gain = tape.parameter(self.parameters.id_at(self.parameters.len() - 1)?)?;
-        let h = tape.rms_norm(x, gain)?;
-        let logits = tape.project(h, embedding, true)?;
-        let loss = tape.next_token_loss(logits)?;
-        Ok(Evaluation { tape, logits, loss })
-    }
-
-    fn block(&self, tape: &mut Tape<'_>, x: ValueId, start: usize) -> Result<ValueId, Error> {
-        let mut param = |offset| -> Result<ValueId, Error> {
-            Ok(tape.parameter(self.parameters.id_at(start + offset)?)?)
-        };
-        let [ag, wq, wk, wv, wo, fg, wg, wu, wd] = [
-            param(0)?,
-            param(1)?,
-            param(2)?,
-            param(3)?,
-            param(4)?,
-            param(5)?,
-            param(6)?,
-            param(7)?,
-            param(8)?,
-        ];
-        let u = tape.rms_norm(x, ag)?;
-        let q = tape.project(u, wq, false)?;
-        let q = tape.rope(q)?;
-        let k = tape.project(u, wk, false)?;
-        let k = tape.rope(k)?;
-        let v = tape.project(u, wv, false)?;
-        let attention = tape.causal_attention(q, k, v)?;
-        let projection = tape.project(attention, wo, false)?;
-        let xa = tape.masked_residual(x, projection)?;
-        let r = tape.rms_norm(xa, fg)?;
-        let gate = tape.project(r, wg, false)?;
-        let value = tape.project(r, wu, false)?;
-        let gated = tape.swiglu(gate, value)?;
-        let down = tape.project(gated, wd, false)?;
-        Ok(tape.masked_residual(xa, down)?)
+        )
     }
 }
 
@@ -272,27 +269,26 @@ fn spec_at(config: Config, entries: usize, index: usize) -> ParameterSpec {
 
 /// A complete reference forward pass. Dropping it releases its tape charges.
 #[derive(Debug)]
-pub struct Evaluation<'a> {
-    tape: Tape<'a>,
-    logits: ValueId,
-    loss: ValueId,
-}
+pub struct Evaluation<'a>(ReferenceTransformerEvaluation<'a>);
 
-impl Evaluation<'_> {
+impl<'a> Evaluation<'a> {
     pub fn logits(&self) -> &Tensor {
-        self.tape.value(self.logits).expect("recorded logits")
+        self.0.logits()
     }
     pub fn loss(&self) -> f32 {
-        self.tape.value(self.loss).expect("recorded loss").data()[0]
+        self.0.loss()
     }
     pub fn metrics(&self) -> Result<TapeMetrics, Error> {
-        Ok(self.tape.metrics()?)
+        Ok(self.0.metrics()?)
+    }
+
+    /// Finish reverse mode before consuming the tape for gradient transfer.
+    pub fn backward(self) -> Result<ReferenceTransformerBackward<'a>, Error> {
+        Ok(self.0.backward()?)
     }
 
     /// Consume the evaluation and publish a gradient batch only after successful reverse and transfer.
-    pub fn gradients(mut self) -> Result<(GradientBatch, TapeMetrics), Error> {
-        self.tape.backward(self.loss)?;
-        let metrics = self.tape.metrics()?;
-        Ok((self.tape.into_parameter_gradients()?, metrics))
+    pub fn gradients(self) -> Result<(GradientBatch, TapeMetrics), Error> {
+        Ok(self.backward()?.into_gradients()?)
     }
 }

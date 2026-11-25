@@ -133,6 +133,10 @@ jobs:
         timeout-minutes: 2
         run: python3 tools/transformer_oracle.py --check
 
+      - name: Regenerate and verify the independent Gate C oracle
+        timeout-minutes: 3
+        run: python3 tools/transformer_oracle.py --candidate --check
+
       - name: Run debug tests and doctests, including all oracles
         shell: bash
         run: |
@@ -176,8 +180,8 @@ jobs:
         run: |
           for profile in debug release; do
             total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
-            test "$total" -eq 105
-            printf '%s matches 90 accepted and 15 added checks\n' "$profile"
+            test "$total" -eq 109
+            printf '%s matches 105 preserved checks and four remediation controls\n' "$profile"
           done
 
       - name: Measure isolated Transformer reference passes
@@ -190,6 +194,12 @@ jobs:
       - name: Measure bounded Transformer candidate feasibility
         timeout-minutes: 2
         run: cargo test -p xynoos-transformer --locked --offline --release --test reference candidate_b1_t32 -- --ignored --exact --nocapture
+
+      - name: Verify scoped Gate C backward, finite differences and transactions
+        timeout-minutes: 3
+        run: |
+          cargo test -p xynoos-transformer --locked --offline --release --test reference candidate:: -- --ignored --nocapture --test-threads=1
+          cargo test -p xynoos-autograd --locked --offline --release --lib tape::transformer::tests::candidate_failures_release_tape_and_preserve_transactions -- --ignored --exact --nocapture
 
       - name: Build Rust documentation
         env:
