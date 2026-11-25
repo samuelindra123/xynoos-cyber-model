@@ -44,6 +44,7 @@ jobs:
           for file in "${required[@]}"; do
             test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
           done
+          test -s docs/reports/TASK-003-B-IMPLEMENTATION-REPORT.md
           test -s .github/workflows/ci.yml
           test -s .github/ISSUE_TEMPLATE/bug_report.yml
           test -s .github/ISSUE_TEMPLATE/feature_request.yml
@@ -115,11 +116,33 @@ jobs:
       - name: Regenerate and verify independent oracle fixtures
         run: python3 tools/numerical_oracle.py --check
 
-      - name: Run debug tests and doctests, including the oracle
-        run: cargo test --workspace --locked --offline -- --show-output
+      - name: Regenerate and verify independent gradient and learning fixtures
+        run: python3 tools/gradient_oracle.py --check
 
-      - name: Run release tests and doctests, including the oracle
-        run: cargo test --workspace --release --locked --offline -- --show-output
+      - name: Run debug tests and doctests, including both oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked --offline -- --show-output | tee "$RUNNER_TEMP/debug-tests.txt"
+
+      - name: Run release tests and doctests, including both oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --release --locked --offline -- --show-output | tee "$RUNNER_TEMP/release-tests.txt"
+
+      - name: Verify bitwise learning trajectory agreement
+        shell: bash
+        run: |
+          set -euo pipefail
+          for profile in debug release; do
+            grep '^TRAJECTORY ' "$RUNNER_TEMP/$profile-tests.txt" > "$RUNNER_TEMP/$profile-trajectory.txt"
+            test "$(wc -l < "$RUNNER_TEMP/$profile-trajectory.txt")" -eq 1
+            test "$(wc -w < "$RUNNER_TEMP/$profile-trajectory.txt")" -eq 102
+          done
+          cmp "$RUNNER_TEMP/debug-trajectory.txt" "$RUNNER_TEMP/release-trajectory.txt"
+          sha256sum "$RUNNER_TEMP/debug-trajectory.txt"
+          echo '101 observations agree bitwise in both Rust profiles.'
 
       - name: Build Rust documentation
         env:

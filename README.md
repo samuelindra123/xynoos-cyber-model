@@ -49,7 +49,7 @@ flowchart LR
     I -. data quality feedback .-> B
 ```
 
-Future modules include differentiation, embeddings, transformer blocks, attention, normalization, losses, optimizers, checkpoint serialization, inference, quantization, dataset pipelines, and evaluation. Optional retrieval infrastructure may be considered later. These are proposed areas, not implemented features.
+Future modules include embeddings, transformer blocks, attention, normalization, checkpoint serialization, inference, quantization, dataset pipelines, and evaluation. Optional retrieval infrastructure may be considered later.
 
 ## Development and compute strategy
 
@@ -59,7 +59,7 @@ GitHub Actions provides bounded repository and numerical checks. Future mileston
 
 ## Current status
 
-**Early-stage research and development.** The completed TASK 002 numerical foundation is a safe Rust tensor library for CPU execution. It provides dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. Final milestone acceptance follows integration and post-merge CI. Model implementation, tokenization, datasets, training, inference, and benchmarking remain future work. [Tensor API and numerical contracts](crates/xynoos-tensor/README.md)
+**Early-stage research and development.** The completed TASK 002 numerical foundation is a safe Rust tensor library for CPU execution. It provides dense binary32 tensors, checked indexing and allocation, elementwise arithmetic, reductions, and matrix operations. TASK 003-B implements bounded first-order reverse-mode differentiation, mean squared error, and transactional SGD. Its draft implementation is pending independent review. [Tensor contracts](crates/xynoos-tensor/README.md) · [Autograd API](crates/xynoos-autograd/README.md)
 
 ## Roadmap
 
@@ -82,6 +82,7 @@ Future research may explore larger architectures, retrieval, improved technical 
 .
 ├── .github/                 # CI and contribution templates
 ├── benchmarks/              # Benchmark policy and future results
+├── crates/xynoos-autograd/   # Bounded reverse-mode AD and SGD
 ├── crates/xynoos-tensor/     # Dense CPU tensor reference library
 ├── datasets/                # Dataset governance; no corpus is included
 ├── docs/                    # Architecture, policies, and milestone reports

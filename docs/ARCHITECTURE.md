@@ -1,6 +1,6 @@
 # Architecture
 
-The native tensor library is the first implemented component. The remaining sections describe research directions for later milestones.
+The native workspace implements a tensor library, first-order reverse-mode differentiation, mean squared error, and transactional SGD.
 
 ## Data and representation
 
@@ -8,9 +8,9 @@ Potential stages are source registration, license and provenance review, cleanin
 
 ## Native compute and model
 
-The workspace contains one safe Rust crate, `xynoos-tensor`. It owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and fallible allocation bounded by per-tensor logical payload and retained numerical capacity. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
+`xynoos-tensor` owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and fallible allocation bounded by per-tensor logical payload and retained numerical capacity. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
 
-Gradient computation, embeddings, transformer blocks, causal attention, normalization, losses, and optimizers remain future work. C kernels and external mathematical dependencies would require a separate review.
+`xynoos-autograd` uses a bounded tape of immutable tensor snapshots and manually defined backward kernels. A gradient batch transfers owned adjoints to the parameter set after backward. Transactional SGD stages updates before committing. C kernels and external mathematical dependencies would require a separate review. [Autograd contracts](../crates/xynoos-autograd/README.md)
 
 ## Training and artifacts
 
