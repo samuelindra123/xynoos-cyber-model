@@ -189,7 +189,12 @@ impl Transformer {
 
     pub fn evaluate(&self, batch: ReferenceBatch<'_>) -> Result<Evaluation<'_>, Error> {
         let config = self.config;
-        config.preflight_batch(batch.shape, self.parameters.limits())?;
+        config.preflight_batch(
+            batch.shape,
+            self.parameters.limits(),
+            self.count,
+            self.parameters.accounted_bytes(),
+        )?;
         let mut tape =
             Tape::for_reference(&self.parameters, batch, config.vocabulary, config.heads)?;
         let embedding = tape.parameter(self.parameters.id_at(0)?)?;

@@ -86,17 +86,18 @@ fn parameters(records: &Value, order: &Value) -> Vec<Vec<f32>> {
         .collect()
 }
 
+fn fixture_coordinate(spec: xynoos_transformer::ParameterSpec, i: usize) -> f32 {
+    let p = spec.index();
+    if spec.shape().len() == 1 {
+        1. + (((i + p) % 9) as f32 - 4.) / 32.
+    } else {
+        (((i * 67 + i / 11 * 19 + p * 43) % 257) as f32 - 128.) / if p == 0 { 2048. } else { 768. }
+    }
+}
+
 fn explicit(config: Config, tokenizer: &Tokenizer) -> Transformer {
-    Transformer::from_coordinates(config, tokenizer, Default::default(), |spec, i| {
-        let p = spec.index();
-        if spec.shape().len() == 1 {
-            1. + (((i + p) % 9) as f32 - 4.) / 32.
-        } else {
-            (((i * 67 + i / 11 * 19 + p * 43) % 257) as f32 - 128.)
-                / if p == 0 { 2048. } else { 768. }
-        }
-    })
-    .unwrap()
+    Transformer::from_coordinates(config, tokenizer, Default::default(), fixture_coordinate)
+        .unwrap()
 }
 
 #[derive(Default)]
@@ -325,6 +326,50 @@ fn four_block_forward_and_gradient_coordinates() {
     }
     assert_eq!(gradients.count, 76);
     gradients.report("four-block analytic gradient coordinates");
+    let tok = bpe();
+    for step in [0.001, 0.003] {
+        let mut native = Comparison::default();
+        let mut oracle = Comparison::default();
+        for row in expected["finite_differences"].as_array().unwrap() {
+            if row["step"].as_f64().unwrap() != step {
+                continue;
+            }
+            let (spec, id) = model
+                .inventory()
+                .find(|(p, _)| p.to_string() == row["name"].as_str().unwrap())
+                .unwrap();
+            let coordinate = row["index"].as_u64().unwrap() as usize;
+            let evaluate = |delta| {
+                Transformer::from_coordinates(
+                    Config::INTEGRATION,
+                    &tok,
+                    Default::default(),
+                    |p, i| {
+                        let value = fixture_coordinate(p, i);
+                        if p.index() == spec.index() && i == coordinate {
+                            (f64::from(value) + delta) as f32
+                        } else {
+                            value
+                        }
+                    },
+                )
+                .unwrap()
+                .evaluate(batch.view())
+                .unwrap()
+                .loss()
+            };
+            let fd =
+                ((f64::from(evaluate(step)) - f64::from(evaluate(-step))) / (2. * step)) as f32;
+            let exact = model.parameters().gradient(id).unwrap().unwrap().data()[coordinate];
+            native.compare(exact, fd, 2e-3, 2e-2);
+            oracle.compare(exact, row["value"].as_f64().unwrap() as f32, 2e-3, 2e-2);
+        }
+        assert_eq!(native.count, 4);
+        native.report(&format!("four-block native finite differences step={step}"));
+        oracle.report(&format!(
+            "four-block independent finite differences step={step}"
+        ));
+    }
 }
 
 #[test]
@@ -946,4 +991,130 @@ fn candidate_b1_t32() {
         model.parameters().peak_accounted_bytes(),
         rss_kib()
     );
+}
+
+#[test]
+fn reverse_memory_and_work_fail_without_gradients() {
+    let (_, _, batch) = fixture();
+    let tok = Tokenizer::byte();
+    let config = Config::MATHEMATICAL;
+    let all = ResourceLimits::MAX_WORK;
+    let reference = Transformer::new(config, &tok, SEED, Default::default()).unwrap();
+    let evaluation = reference.evaluate(batch.view()).unwrap();
+    let forward_peak = reference.parameters().peak_accounted_bytes();
+    drop(evaluation);
+    for limits in [
+        ResourceLimits::new(forward_peak, 30, 19, all),
+        ResourceLimits::new(ResourceLimits::MAX_BYTES, 30, 19, 300_000),
+    ] {
+        let model = Transformer::new(config, &tok, SEED, limits).unwrap();
+        let baseline = model.parameters().accounted_bytes();
+        let revision = model.parameters().revision();
+        let failure = model
+            .evaluate(batch.view())
+            .unwrap()
+            .gradients()
+            .unwrap_err();
+        assert_eq!(model.parameters().accounted_bytes(), baseline);
+        assert_eq!(model.parameters().revision(), revision);
+        assert!(
+            model
+                .inventory()
+                .all(|(_, id)| model.parameters().gradient(id).unwrap().is_none())
+        );
+        if limits.max_work() == all {
+            assert!(
+                matches!(failure, Error::Autograd(A::MemoryLimit {limit, ..}) if limit == forward_peak)
+            );
+        } else {
+            assert!(matches!(
+                failure,
+                Error::Autograd(A::WorkLimit {
+                    pass: Pass::Backward,
+                    requested: 547_964,
+                    limit: 300_000
+                })
+            ));
+        }
+        println!("TASK005 reverse resource control {failure}");
+    }
+}
+
+#[test]
+fn operation_tables_match_independent_values_and_vjps() {
+    let (reference, records, batch) = fixture();
+    let operation_fixture: Value =
+        serde_json::from_str(include_str!("fixtures/operations.json")).unwrap();
+    let arrays = parameters(&records, &reference["parameter_order"]);
+    let config = Config::MATHEMATICAL;
+    let model =
+        Transformer::from_coordinates(config, &Tokenizer::byte(), Default::default(), |spec, i| {
+            arrays[spec.index()][i]
+        })
+        .unwrap();
+    let mut tape = Tape::for_reference(
+        model.parameters(),
+        batch.view(),
+        config.vocabulary,
+        config.heads,
+    )
+    .unwrap();
+    let snapshots: Vec<_> = model
+        .inventory()
+        .map(|(_, id)| tape.parameter(id).unwrap())
+        .collect();
+    let [e, ag, wq, wk, wv, wo, fg, wg, wu, wd, final_gain] = snapshots.try_into().unwrap();
+    let x = tape.embedding(e).unwrap();
+    let u = tape.rms_norm(x, ag).unwrap();
+    let q = tape.project(u, wq, false).unwrap();
+    let k = tape.project(u, wk, false).unwrap();
+    let v = tape.project(u, wv, false).unwrap();
+    let qr = tape.rope(q).unwrap();
+    let kr = tape.rope(k).unwrap();
+    let at = tape.causal_attention(qr, kr, v).unwrap();
+    let projected = tape.project(at, wo, false).unwrap();
+    let xa = tape.masked_residual(x, projected).unwrap();
+    let r = tape.rms_norm(xa, fg).unwrap();
+    let gate = tape.project(r, wg, false).unwrap();
+    let value = tape.project(r, wu, false).unwrap();
+    let activated = tape.swiglu(gate, value).unwrap();
+    let down = tape.project(activated, wd, false).unwrap();
+    let block = tape.masked_residual(xa, down).unwrap();
+    let hidden = tape.rms_norm(block, final_gain).unwrap();
+    let logits = tape.project(hidden, e, true).unwrap();
+    let loss = tape.next_token_loss(logits).unwrap();
+    tape.backward(loss).unwrap();
+    let mut act = Comparison::default();
+    let mut backward = Comparison::default();
+    for (name, key) in [
+        ("embedding", x),
+        ("attention_norm", u),
+        ("q", q),
+        ("k", k),
+        ("v", v),
+        ("q_rotated", qr),
+        ("k_rotated", kr),
+        ("attended", at),
+        ("projected", projected),
+        ("attention_residual", xa),
+        ("ffn_norm", r),
+        ("gate", gate),
+        ("value", value),
+        ("activated", activated),
+        ("down", down),
+        ("block_output", block),
+        ("final_hidden", hidden),
+        ("logits", logits),
+        ("loss", loss),
+    ] {
+        let expected = &operation_fixture["records"][name];
+        let value = tape.value(key).unwrap();
+        let grad = tape.gradient(key).unwrap().unwrap();
+        assert_eq!(serde_json::json!(value.shape()), expected["shape"]);
+        assert_eq!(value.shape(), grad.shape());
+        act.slice(value.data(), &values(&expected["value"]));
+        backward.slice(grad.data(), &values(&expected["gradient"]));
+    }
+    act.report("operation tables forward");
+    backward.report("operation tables adjoints");
 }

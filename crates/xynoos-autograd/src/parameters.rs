@@ -1,4 +1,4 @@
-use xynoos_tensor::Tensor;
+use xynoos_tensor::{Tensor, TensorError, TensorLimits};
 
 use crate::budget::{add, mul, Budget, OwnedTensor, Table};
 use crate::error::{check_finite, finite, same_shape};
@@ -96,7 +96,22 @@ impl ParameterSet {
     ) -> Result<ParameterId, Error> {
         let revision = self.next_revision()?;
         let index = self.len();
-        let len = shape.iter().try_fold(1, |a, &b| mul(a, b))?;
+        if shape.len() > TensorLimits::MAX_RANK {
+            return Err(TensorError::RankLimitExceeded {
+                rank: shape.len(),
+                limit: TensorLimits::MAX_RANK,
+            }
+            .into());
+        }
+        let len = shape
+            .iter()
+            .rev()
+            .enumerate()
+            .try_fold(1_usize, |a, (i, &b)| {
+                a.checked_mul(b).ok_or(TensorError::ShapeOverflow {
+                    axis: shape.len() - 1 - i,
+                })
+            })?;
         self.limits().check_work(
             Pass::ParameterInsertion,
             add(self.parameters.move_work(), add(len, 1)?)?,

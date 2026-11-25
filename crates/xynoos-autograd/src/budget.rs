@@ -87,6 +87,8 @@ pub(crate) struct Budget {
 struct Ledger {
     current: Cell<usize>,
     peak: Cell<usize>,
+    #[cfg(test)]
+    fail_allocation_after: Cell<Option<usize>>,
 }
 
 impl Budget {
@@ -103,6 +105,26 @@ impl Budget {
 
     pub(crate) fn peak(&self) -> usize {
         self.used.peak.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_allocation_after(&self, successes: usize) {
+        self.used.fail_allocation_after.set(Some(successes));
+    }
+
+    #[cfg(test)]
+    fn check_test_allocation(&self) -> Result<(), Error> {
+        match self.used.fail_allocation_after.get() {
+            Some(0) => {
+                self.used.fail_allocation_after.set(None);
+                Err(Error::AllocationFailed)
+            }
+            Some(remaining) => {
+                self.used.fail_allocation_after.set(Some(remaining - 1));
+                Ok(())
+            }
+            None => Ok(()),
+        }
     }
 
     // Cell is exclusively an allocation ledger. It never grants access to values or gradients.
@@ -149,6 +171,8 @@ impl Budget {
         mut coordinate: impl FnMut(usize) -> Result<f32, Error>,
     ) -> Result<OwnedTensor, Error> {
         let mut charge = self.reserve(tensor_bytes(shape.len(), len)?)?;
+        #[cfg(test)]
+        self.check_test_allocation()?;
         let mut data = Vec::new();
         data.try_reserve_exact(len)
             .map_err(|_| Error::AllocationFailed)?;
@@ -231,6 +255,8 @@ impl<T> Table<T> {
             return Ok(Self::empty());
         }
         let mut charge = budget.reserve(mul(capacity, size_of::<T>())?)?;
+        #[cfg(test)]
+        budget.check_test_allocation()?;
         let mut entries = Vec::new();
         entries
             .try_reserve_exact(capacity)

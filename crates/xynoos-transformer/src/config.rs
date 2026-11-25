@@ -126,6 +126,8 @@ impl Config {
         self,
         [b, t]: [usize; 2],
         limits: ResourceLimits,
+        parameter_count: usize,
+        live_bytes: usize,
     ) -> Result<(), Error> {
         let rows = mul(b, t)?;
         if !(1..=64).contains(&b) || !(1..=self.context.min(2048)).contains(&t) || rows > 65_536 {
@@ -134,7 +136,8 @@ impl Config {
         for width in [self.width, self.ffn, self.vocabulary] {
             tensor(mul(rows, width)?, size_of::<f32>())?;
         }
-        tensor(mul(mul(rows, self.heads)?, t)?, size_of::<f64>())?;
+        let probability_cells = mul(mul(rows, self.heads)?, t)?;
+        tensor(probability_cells, size_of::<f64>())?;
         let operations = add(mul(self.layers, 15)?, 4)?;
         let values = add(self.inventory_len()?, operations)?;
         if operations > limits.max_operations() {
@@ -146,6 +149,38 @@ impl Config {
         if values > limits.max_values() {
             return Err(AutogradError::ValueLimit {
                 limit: limits.max_values(),
+            }
+            .into());
+        }
+        // Unavoidable dense multiply/add contribution, before kernel-specific
+        // charges, scans, masks, node growth and parameter snapshots.
+        let (d, f, v, n) = (self.width, self.ffn, self.vocabulary, self.layers);
+        let block_weights = add(mul(mul(4, d)?, d)?, mul(mul(3, d)?, f)?)?;
+        let dense_products = add(mul(n, block_weights)?, mul(v, d)?)?;
+        let dense_floor = mul(mul(rows, dense_products)?, 2)?;
+        if dense_floor > limits.max_work() {
+            return Err(AutogradError::WorkLimit {
+                pass: Pass::Forward,
+                requested: dense_floor,
+                limit: limits.max_work(),
+            }
+            .into());
+        }
+        // Floor for simultaneously live buffers after forward. The tape then
+        // charges metadata, capacity slack and transient overlap as they occur.
+        let block_activations = add(mul(12, d)?, mul(3, f)?)?;
+        let row_widths = add(add(mul(n, block_activations)?, mul(2, d)?)?, v)?;
+        let cells = add(add(mul(rows, row_widths)?, parameter_count)?, 1)?;
+        let bytes = add(
+            mul(cells, size_of::<f32>())?,
+            mul(mul(n, probability_cells)?, size_of::<f64>())?,
+        )?;
+        let batch_bytes = mul(rows, 2 * (size_of::<u32>() + size_of::<u8>()))?;
+        let requested = add(live_bytes, add(bytes, batch_bytes)?)?;
+        if requested > limits.max_bytes() {
+            return Err(AutogradError::MemoryLimit {
+                requested,
+                limit: limits.max_bytes(),
             }
             .into());
         }

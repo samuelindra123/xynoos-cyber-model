@@ -106,12 +106,12 @@ impl<'p> Tape<'p> {
         })
     }
 
-    /// Masked embedding gather from a single [V,D] parameter snapshot.
+    /// Masked embedding gather from a single `[V,D]` parameter snapshot.
     pub fn embedding(&mut self, embedding: ValueId) -> Result<ValueId, Error> {
         self.record_reference(Kernel::Gather(self.index(embedding)?))
     }
 
-    /// Dense projection of [B,T,D] with [D,N] weights, or [N,D] when transposed.
+    /// Dense projection of `[B,T,D]` with `[D,N]` weights, or `[N,D]` when transposed.
     pub fn project(
         &mut self,
         input: ValueId,
@@ -619,5 +619,51 @@ mod tests {
         assert!(matches!(tape.value(id), Err(Error::InvalidValueId)));
         assert_eq!(tape.sum(id), Err(Error::InvalidValueId));
         assert_eq!(tape.backward(id), Err(Error::InvalidValueId));
+    }
+
+    #[test]
+    fn reference_allocation_failure_preserves_published_state_and_cleans_up() {
+        let mut set = ParameterSet::new(Default::default()).unwrap();
+        let logits = Tensor::zeros(&[1, 1, 260], Default::default()).unwrap();
+        let id = set.insert(logits).unwrap();
+        let baseline = set.accounted_bytes();
+        let revision = set.revision();
+        let mut tape = Tape::for_reference(
+            &set,
+            ReferenceBatch {
+                shape: [1, 1],
+                input: &[1],
+                target: &[2],
+                valid: None,
+                loss: None,
+            },
+            260,
+            1,
+        )
+        .unwrap();
+        let prediction = tape.parameter(id).unwrap();
+        let after_snapshot = set.accounted_bytes();
+        set.budget.fail_allocation_after(2);
+        assert_eq!(
+            tape.next_token_loss(prediction),
+            Err(Error::AllocationFailed)
+        );
+        assert_eq!(tape.metrics().unwrap().values, 1);
+        assert_eq!(set.accounted_bytes(), after_snapshot);
+        let loss = tape.next_token_loss(prediction).unwrap();
+        let before_backward = set.accounted_bytes();
+        set.budget.fail_allocation_after(5);
+        assert_eq!(tape.backward(loss), Err(Error::AllocationFailed));
+        assert_eq!(tape.backward(loss), Err(Error::BackwardAlreadyRun));
+        assert!(matches!(
+            tape.gradient(prediction),
+            Err(Error::BackwardRequired)
+        ));
+        assert_eq!(set.accounted_bytes(), before_backward);
+        assert!(set.gradient(id).unwrap().is_none());
+        assert_eq!(set.revision(), revision);
+        drop(tape);
+        assert_eq!(set.accounted_bytes(), baseline);
+        println!("TASK005 injected forward and reverse allocation failures: AllocationFailed");
     }
 }

@@ -125,12 +125,24 @@ class Graph:
 
         return self.result((dot(row, col) for row in xrows for col in columns), (a, dx), (w, dw))
 
-    def norm(self, a, gain, d, mask, wrong_axis):
+    def norm(self, a, gain, d, t, mask, wrong_axis):
         x, weights = self.value(a), self.value(gain)
+        if wrong_axis:
+            # Run a different normalization: each feature along the sequence.
+            out = [0.] * len(x)
+            for b in range(len(mask)//t):
+                for k in range(d):
+                    segment = [(b*t+i)*d+k for i in range(t)]
+                    ms = total(x[i]**2 for i in segment) / t
+                    r = math.sqrt(1e-5 + ms)
+                    for i in segment:
+                        if mask[i//d]:
+                            out[i] = weights[k]*x[i]/r
+            # This mutation is detected by its forward output alone.
+            return self.result(out, (a, lambda _: [0.] * len(x)),
+                               (gain, lambda _: [0.] * d))
         rms = [math.sqrt(1e-5 + dot(x[i:i+d], x[i:i+d]) / d)
                for i in range(0, len(x), d)]
-        if wrong_axis:
-            rms = [math.sqrt(1e-5 + dot(x, x) / len(x))] * len(mask)
 
         def dx(g):
             for row, (valid, r) in enumerate(zip(mask, rms)):
@@ -252,7 +264,7 @@ def softmax(z):
     return [u/denominator for u in shifted], math.log(denominator)
 
 
-def evaluate(config, params, batch, mutation="", gradients=True):
+def evaluate(config, params, batch, mutation="", gradients=True, details=None):
     d, n, h, f, v = (config[k] for k in ("d", "n", "h", "f", "v"))
     t = batch["shape"][1]
     ids, targets, mask, loss = (batch[k] for k in ("input", "target", "valid", "loss"))
@@ -282,16 +294,23 @@ def evaluate(config, params, batch, mutation="", gradients=True):
     for block in range(n):
         p = {name: leaves[f"block.{block}.{name}"] for name in (
             "attention_gain", "q", "k", "v", "o", "ffn_gain", "gate", "value", "down")}
-        u = graph.norm(x, p["attention_gain"], d, mask, mutation == "norm")
+        u = graph.norm(x, p["attention_gain"], d, t, mask, mutation == "norm")
         q, k, value = [graph.dense(u, p[key], d, d) for key in ("q", "k", "v")]
         qr, kr = [graph.rope(z, t, d, h, mutation == "rope") for z in (q, k)]
         a = graph.attention(qr, kr, value, t, d, h, mask, mutation)
-        xa = residual(x, graph.dense(a, p["o"], d, d))
-        r = graph.norm(xa, p["ffn_gain"], d, mask, mutation == "norm")
+        projected = graph.dense(a, p["o"], d, d)
+        xa = residual(x, projected)
+        r = graph.norm(xa, p["ffn_gain"], d, t, mask, mutation == "norm")
         g, w = [graph.dense(r, p[key], d, f) for key in ("gate", "value")]
         s = graph.swiglu(g, w, mutation == "derivative")
-        x = residual(xa, graph.dense(s, p["down"], f, d))
-    hidden = graph.norm(x, leaves["final_gain"], d, mask, mutation == "norm")
+        down = graph.dense(s, p["down"], f, d)
+        x = residual(xa, down)
+        if block == 0:
+            first = dict(embedding=gather, attention_norm=u, q=q, k=k, v=value,
+                         q_rotated=qr, k_rotated=kr, attended=a, projected=projected,
+                         attention_residual=xa, ffn_norm=r, gate=g, value=w,
+                         activated=s, down=down, block_output=x)
+    hidden = graph.norm(x, leaves["final_gain"], d, t, mask, mutation == "norm")
     projection = graph.dense(hidden, shared, d, v, tied=True)
     logits = graph.value(projection)
     rows = []
@@ -321,6 +340,13 @@ def evaluate(config, params, batch, mutation="", gradients=True):
     if not gradients:
         return graph.value(root)[0]
     grads = graph.backward(root)
+    if details is not None:
+        first.update(final_hidden=hidden, logits=projection, loss=root)
+        b = batch["shape"][0]
+        for name, node in sorted(first.items()):
+            record = graph.value(node)
+            shape = [] if name == "loss" else [b, t, len(record)//(b*t)]
+            details[name] = dict(shape=shape, value=bits(record), gradient=bits(grads[node]))
     paths = [list(map(f32, scatter(grads[gather]))),
              list(map(f32, graph.nodes[projection][1][-1][1](grads[projection])))
              if mutation != "tie" else [0.] * len(embedding)]
@@ -334,13 +360,15 @@ def batch_fixture():
                 loss=[1, 1, 1, 0, 0, 1, 1, 1, 0, 0])
 
 
-def finite_differences(config, params, batch, gradients):
+def finite_differences(config, params, batch, gradients, selected=None):
     results = []
     for step in (0.001, 0.003):
         for name, arr in params.items():
             indexes = [1, len(arr)//2+1]
             if name == "embedding":
                 indexes = [1, 3*config["d"] + 1, 7*config["d"] + config["d"]//2]
+            if selected is not None:
+                indexes = selected.get(name, [])
             for index in indexes:
                 old = arr[index]
                 arr[index] = f32(old+step)
@@ -358,7 +386,8 @@ def finite_differences(config, params, batch, gradients):
 def generate():
     config, batch = TINY, batch_fixture()
     params = explicit(config)
-    logits, loss, gradients, paths = evaluate(config, params, batch)
+    primitive_records = {}
+    logits, loss, gradients, paths = evaluate(config, params, batch, details=primitive_records)
     records = {}
     order = list(params)
     for name, shape in inventory(**config):
@@ -386,22 +415,29 @@ def generate():
     for mutation in ("scale", "future", "layout", "rope", "norm", "derivative",
                      "residual", "shift", "pad", "tie", "mean"):
         out, wrong_loss, grad, _ = evaluate(config, params, batch, mutation)
-        actual = [*out, *wrong_loss, *(x for values in grad.values() for x in values)]
-        wanted = [*logits, *loss, *(x for values in gradients.values() for x in values)]
+        actual = [*out, *wrong_loss]
+        wanted = [*logits, *loss]
+        if mutation != "norm":
+            actual.extend(x for values in grad.values() for x in values)
+            wanted.extend(x for values in gradients.values() for x in values)
         delta = max(abs(a-b) for a, b in zip(actual, wanted))
         assert any(abs(a-b) > 2e-5 + 2e-5*abs(b) for a, b in zip(actual, wanted)), mutation
         print(f"{mutation} control: max abs disagreement {delta:.9g}")
     small_params = explicit(SMALL)
     small_logits, small_loss, small_grad, _ = evaluate(SMALL, small_params, batch)
     small_coordinates = {name: [1, len(values)//2+1] for name, values in small_grad.items()}
+    small_fd = finite_differences(SMALL, small_params, batch, small_grad,
+                                  {"block.0.q": [39], "block.1.o": [17],
+                                   "block.2.down": [128], "block.3.ffn_gain": [25]})
     integration = dict(config=SMALL, logits=bits(small_logits), loss=bits(small_loss),
-                       gradients={name: dict(indexes=indexes, value=bits(small_grad[name][i] for i in indexes))
+                       finite_differences=small_fd, gradients={name: dict(indexes=indexes, value=bits(small_grad[name][i] for i in indexes))
                                   for name, indexes in small_coordinates.items()})
     return dict(schema_version=1, architecture_version=1, config=config, vocabulary=config["v"],
                 seed=f"0x{SEED:016x}", parameter_order=order, batch=batch, parameters=records,
                 initialization=init, outputs=dict(logits=bits(logits), loss=bits(loss)),
                 embedding_paths=dict(lookup=bits(paths[0]), output=bits(paths[1])),
-                finite_differences=fd, hand_attention=bits(hand), integration=integration)
+                finite_differences=fd, hand_attention=bits(hand), integration=integration,
+                primitive_records=primitive_records)
 
 
 def main():
@@ -410,9 +446,11 @@ def main():
     args = parser.parse_args()
     reference = generate()
     parameters = reference.pop("parameters")
+    primitives = reference.pop("primitive_records")
     # Keep each canonical document below the repository's artifact-size ceiling.
     documents = {"reference.json": reference,
-                 "parameters.json": dict(schema_version=1, parameters=parameters)}
+                 "parameters.json": dict(schema_version=1, parameters=parameters),
+                 "operations.json": dict(schema_version=1, records=primitives)}
     for filename, obj in documents.items():
         path = FIXTURES / filename
         payload = (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
