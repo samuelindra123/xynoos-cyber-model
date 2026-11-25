@@ -180,8 +180,8 @@ jobs:
         run: |
           for profile in debug release; do
             total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
-            test "$total" -eq 109
-            printf '%s matches 105 preserved checks and four remediation controls\n' "$profile"
+            test "$total" -eq 110
+            printf '%s matches 109 preserved checks and one auditor-authored control\n' "$profile"
           done
 
       - name: Measure isolated Transformer reference passes
@@ -198,10 +198,14 @@ jobs:
       - name: Verify scoped Gate C backward, finite differences and transactions
         timeout-minutes: 3
         run: |
-          for test in full_candidate_b1_t32 candidate_policy_preserves_tighter_work_limit; do
+          for test in full_candidate_b1_t32 candidate_policy_preserves_tighter_work_limit c2_matching_shapes_without_candidate_inventory_identity_are_rejected; do
             cargo test -p xynoos-transformer --locked --offline --release --test reference "candidate::$test" -- --ignored --exact --nocapture
           done
           cargo test -p xynoos-autograd --locked --offline --release --lib tape::transformer::tests::candidate_failures_release_tape_and_preserve_transactions -- --ignored --exact --nocapture
+
+      - name: Run auditor-authored TASK 005-C2 mathematical control
+        timeout-minutes: 1
+        run: cargo test -p xynoos-transformer --locked --offline --release --test reference candidate::c2_independent_tied_edge_derivative_and_negative_control -- --exact --nocapture
 
       - name: Build Rust documentation
         env:

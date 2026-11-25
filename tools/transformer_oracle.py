@@ -13,6 +13,20 @@ SEED = 0x58594E4F4F530005
 TINY = dict(v=260, d=16, n=1, h=2, f=48, context=8)
 SMALL = dict(v=292, d=32, n=4, h=4, f=96, context=64)
 CANDIDATE = dict(v=292, d=96, n=8, h=4, f=256, context=128)
+C2_COORDINATES = (
+    ("embedding", 53 * 96 + 7),
+    ("block.6.attention_gain", 71),
+    ("block.2.q", 3011),
+    ("block.6.k", 811),
+    ("block.4.v", 5377),
+    ("block.7.o", 1300),
+    ("block.3.ffn_gain", 82),
+    ("block.1.gate", 22033),
+    ("block.5.value", 20123),
+    ("block.6.down", 17003),
+    ("block.0.q", 809),
+    ("final_gain", 49),
+)
 
 
 def f32(value):
@@ -21,6 +35,23 @@ def f32(value):
 
 def bits(values):
     return [struct.pack("<f", value).hex() for value in values]
+
+
+def check_initialization_edge_cases():
+    mask = (1 << 64) - 1
+    state = (SEED + 0x9E3779B97F4A7C15) & mask
+    z = state
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & mask
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & mask
+    z ^= z >> 31
+    assert state == 0xF690C808CE9D7C1A
+    assert z == 0x5DFD1045191BA975
+    assert (z >> 11) == 0xBBFA208A32375
+    lower = 0.5 / (1 << 53)
+    upper = min((((1 << 53) - 1) + 0.5) / (1 << 53), math.nextafter(1.0, 0.0))
+    assert lower == 2.0 ** -54
+    assert upper == math.nextafter(1.0, 0.0)
+    assert 0.0 < lower < upper < 1.0
 
 
 def inventory(v, d, n, h, f, context):
@@ -491,6 +522,11 @@ def generate_candidate():
                             summary=gradient_summary(values),
                             init_checksum=binary32_checksum(params[name])))
 
+    # C2 coordinates are fixed independently of observed gradient errors.
+    c2_coordinates = [dict(name=name, index=index,
+                           gradient=bits([grad[name][index]])[0])
+                      for name, index in C2_COORDINATES]
+
     def tied_record(gradient, components):
         lookup, output = components
         assert gradient == [f32(a+b) for a, b in zip(lookup, output)]
@@ -519,7 +555,8 @@ def generate_candidate():
     doc = dict(schema_version=1, architecture_version=1, config=config,
                 seed=f"0x{SEED:016x}", batch=batch_original,
                 logits=bits(logits), loss=bits(loss)[0], parameters=records,
-                finite_differences=fd, embedding=tied_record(grad["embedding"], paths),
+                finite_differences=fd, c2_coordinates=c2_coordinates,
+                embedding=tied_record(grad["embedding"], paths),
                 repeated=dict(batch=batch_repeated, loss=bits(repeated_loss)[0],
                               embedding=tied_record(repeated_grad["embedding"], repeated_paths)))
     # A distinct explicit-parameter evaluation lets the autograd unit test
@@ -541,6 +578,7 @@ def main():
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--candidate", action="store_true", help="verify the full Gate C fixture")
     args = parser.parse_args()
+    check_initialization_edge_cases()
     if args.candidate:
         candidate, paths = generate_candidate()
         document("candidate.json", candidate, args.check)
