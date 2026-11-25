@@ -1,7 +1,7 @@
 # TASK 004-D — Final Acceptance Report
 
-**Decision:** ACCEPTED — TASK 004 COMPLETE, READY FOR TASK 005-A  
-**Accepted main:** `ab675d00119c2457f140e36a1dfc02806d9e811b`  
+**Decision:** ACCEPTED — TASK 004 COMPLETE, READY FOR TASK 005-A
+**Accepted main:** `ab675d00119c2457f140e36a1dfc02806d9e811b`
 **Documentation branch:** `docs/task-004-d-final-acceptance`
 
 ## Scope and acceptance
