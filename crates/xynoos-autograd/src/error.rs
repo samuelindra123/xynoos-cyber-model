@@ -47,6 +47,18 @@ pub enum AutogradError {
     BackwardRequired,
     TapeSealed,
     EmptyReduction,
+    InvalidReferenceShape,
+    InvalidToken {
+        index: usize,
+        target: bool,
+    },
+    InvalidMask {
+        index: usize,
+    },
+    InvalidTargetShift {
+        index: usize,
+    },
+    NoSupervisedTargets,
     ConstantTargetRequired,
     NonFinite {
         stage: Stage,

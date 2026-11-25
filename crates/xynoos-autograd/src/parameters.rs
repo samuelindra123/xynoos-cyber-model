@@ -1,4 +1,4 @@
-use xynoos_tensor::Tensor;
+use xynoos_tensor::{Tensor, TensorError, TensorLimits};
 
 use crate::budget::{add, mul, Budget, OwnedTensor, Table};
 use crate::error::{check_finite, finite, same_shape};
@@ -58,6 +58,91 @@ impl ParameterSet {
     /// Accounted bytes across this set, its live tapes, and all outstanding batches.
     pub fn accounted_bytes(&self) -> usize {
         self.budget.used()
+    }
+
+    /// Lifetime high-water mark of application-level charges.
+    pub fn peak_accounted_bytes(&self) -> usize {
+        self.budget.peak()
+    }
+
+    /// Reserve a complete parameter inventory before running its generators.
+    pub fn with_inventory(
+        limits: ResourceLimits,
+        entries: usize,
+        elements: usize,
+        sum_ranks: usize,
+    ) -> Result<Self, Error> {
+        let mut set = Self::new(limits)?;
+        let payload = add(
+            mul(elements, size_of::<f32>())?,
+            mul(sum_ranks, size_of::<usize>())?,
+        )?;
+        let requested = add(payload, mul(entries, size_of::<Parameter>())?)?;
+        if requested > limits.max_bytes() {
+            return Err(Error::MemoryLimit {
+                requested,
+                limit: limits.max_bytes(),
+            });
+        }
+        set.parameters = Table::allocate(&set.budget, entries)?;
+        Ok(set)
+    }
+
+    /// Generate a finite parameter inside the accounting ledger.
+    pub fn insert_generated(
+        &mut self,
+        shape: &[usize],
+        coordinate: impl FnMut(usize) -> Result<f32, Error>,
+    ) -> Result<ParameterId, Error> {
+        let revision = self.next_revision()?;
+        let index = self.len();
+        if shape.len() > TensorLimits::MAX_RANK {
+            return Err(TensorError::RankLimitExceeded {
+                rank: shape.len(),
+                limit: TensorLimits::MAX_RANK,
+            }
+            .into());
+        }
+        let len = shape
+            .iter()
+            .rev()
+            .enumerate()
+            .try_fold(1_usize, |a, (i, &b)| {
+                a.checked_mul(b).ok_or(TensorError::ShapeOverflow {
+                    axis: shape.len() - 1 - i,
+                })
+            })?;
+        self.limits().check_work(
+            Pass::ParameterInsertion,
+            add(self.parameters.move_work(), add(len, 1)?)?,
+        )?;
+        let max = self.limits().max_bytes() / size_of::<Parameter>();
+        let replacement = self.parameters.growth(&self.budget, max)?;
+        let value = self.budget.generate(shape, len, coordinate)?;
+        check_finite(value.tensor.data(), Stage::Parameter)?;
+        self.parameters.push(
+            replacement,
+            Parameter {
+                value,
+                gradient: None,
+            },
+        );
+        self.revision = revision;
+        Ok(ParameterId {
+            owner: self.owner,
+            index,
+        })
+    }
+
+    /// Resolve an inventory coordinate to a handle for this set.
+    pub fn id_at(&self, index: usize) -> Result<ParameterId, Error> {
+        if index >= self.len() {
+            return Err(Error::InvalidParameterId);
+        }
+        Ok(ParameterId {
+            owner: self.owner,
+            index,
+        })
     }
 
     pub fn len(&self) -> usize {

@@ -3,6 +3,7 @@ use xynoos_tensor::{Tensor, TensorLimits};
 use crate::budget::{add, mul, OwnedTensor, Table};
 use crate::error::{check_finite, finite, same_shape};
 use crate::kernels::Op;
+use crate::reference::{Kernel, Reference, ReferenceBatch};
 use crate::{
     identity, AutogradError as Error, GradientBatch, ParameterId, ParameterSet, Pass, Stage,
 };
@@ -46,6 +47,20 @@ pub struct Tape<'p> {
     operations: usize,
     forward_work: usize,
     state: State,
+    reference: Option<Reference>,
+    backward_work: usize,
+    snapshot_work: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TapeMetrics {
+    pub values: usize,
+    pub operations: usize,
+    pub forward_work: usize,
+    pub backward_work: usize,
+    /// Parameter snapshot work already included in forward_work.
+    pub snapshot_work: usize,
+    pub gradient_transfer_work: usize,
 }
 
 impl<'p> Tape<'p> {
@@ -57,7 +72,146 @@ impl<'p> Tape<'p> {
             operations: 0,
             forward_work: 0,
             state: State::Recording,
+            reference: None,
+            backward_work: 0,
+            snapshot_work: 0,
         })
+    }
+
+    /// Initialize a reference graph with owned, charged next-token batch constants.
+    pub fn for_reference(
+        parameters: &'p ParameterSet,
+        batch: ReferenceBatch<'_>,
+        vocabulary: usize,
+        heads: usize,
+    ) -> Result<Self, Error> {
+        let mut tape = Self::new(parameters)?;
+        let (reference, work) = Reference::new(&parameters.budget, batch, vocabulary, heads)?;
+        tape.reference = Some(reference);
+        tape.forward_work = work;
+        Ok(tape)
+    }
+
+    pub fn metrics(&self) -> Result<TapeMetrics, Error> {
+        Ok(TapeMetrics {
+            values: self.nodes.entries.len(),
+            operations: self.operations,
+            forward_work: self.forward_work,
+            backward_work: self.backward_work,
+            snapshot_work: self.snapshot_work,
+            gradient_transfer_work: match &self.state {
+                State::Complete(adjoints) => self.transfer_work(adjoints)?,
+                _ => 0,
+            },
+        })
+    }
+
+    /// Masked embedding gather from a single `[V,D]` parameter snapshot.
+    pub fn embedding(&mut self, embedding: ValueId) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Gather(self.index(embedding)?))
+    }
+
+    /// Dense projection of `[B,T,D]` with `[D,N]` weights, or `[N,D]` when transposed.
+    pub fn project(
+        &mut self,
+        input: ValueId,
+        weight: ValueId,
+        transposed: bool,
+    ) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Dense(
+            self.index(input)?,
+            self.index(weight)?,
+            transposed,
+        ))
+    }
+
+    /// Featurewise RMS normalization and masking of invalid rows.
+    pub fn rms_norm(&mut self, input: ValueId, gain: ValueId) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Norm(self.index(input)?, self.index(gain)?))
+    }
+
+    /// Interleaved RoPE with constant base 10,000 and per-sample positions.
+    pub fn rope(&mut self, input: ValueId) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Rope(self.index(input)?))
+    }
+
+    /// Explicit causal multi-head attention with a binary64 probability table.
+    pub fn causal_attention(
+        &mut self,
+        q: ValueId,
+        k: ValueId,
+        v: ValueId,
+    ) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Attention(
+            self.index(q)?,
+            self.index(k)?,
+            self.index(v)?,
+        ))
+    }
+
+    pub fn swiglu(&mut self, gate: ValueId, value: ValueId) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::SwiGlu(self.index(gate)?, self.index(value)?))
+    }
+
+    pub fn masked_residual(&mut self, input: ValueId, branch: ValueId) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Residual(self.index(input)?, self.index(branch)?))
+    }
+
+    pub fn next_token_loss(&mut self, logits: ValueId) -> Result<ValueId, Error> {
+        self.record_reference(Kernel::Loss(self.index(logits)?))
+    }
+
+    fn reference(&self) -> Result<&Reference, Error> {
+        self.reference.as_ref().ok_or(Error::InvalidReferenceShape)
+    }
+
+    fn record_reference(&mut self, kernel: Kernel) -> Result<ValueId, Error> {
+        self.ensure_recording()?;
+        let limits = self.parameters.limits();
+        if self.operations == limits.operations {
+            return Err(Error::OperationLimit {
+                limit: limits.operations,
+            });
+        }
+        let reference = self.reference()?;
+        let (shape, rank, len, work) = reference.output(kernel, &self.nodes.entries)?;
+        let work = add(add(work, reference.nodes.move_work())?, 1)?;
+        let replacement = self.reserve_node(work)?;
+        let reference = self.reference()?;
+        let saved_nodes = reference
+            .nodes
+            .growth(&self.parameters.budget, limits.operations)?;
+        let (value, recorded) = reference.forward(
+            &self.parameters.budget,
+            kernel,
+            &self.nodes.entries,
+            &shape[..rank],
+            len,
+        )?;
+        check_finite(value.tensor.data(), Stage::Forward)?;
+        let differentiable = kernel
+            .edges()
+            .into_iter()
+            .flatten()
+            .any(|i| self.nodes.entries[i].differentiable);
+        let reference = self
+            .reference
+            .as_mut()
+            .ok_or(Error::InvalidReferenceShape)?;
+        let op = Op::Reference(reference.nodes.entries.len());
+        reference.nodes.push(saved_nodes, recorded);
+        self.operations = add(self.operations, 1)?;
+        Ok(self.publish(replacement, op, value, differentiable))
+    }
+
+    fn edges(&self, op: Op) -> [Option<usize>; 3] {
+        if let Op::Reference(i) = op {
+            return self.reference.as_ref().unwrap().nodes.entries[i]
+                .kernel
+                .edges();
+        }
+        let [a, b] = op.edges();
+        [a, b, None]
     }
 
     pub fn value(&self, id: ValueId) -> Result<&Tensor, Error> {
@@ -70,7 +224,11 @@ impl<'p> Tape<'p> {
 
     pub fn parameter(&mut self, id: ParameterId) -> Result<ValueId, Error> {
         let (index, source) = self.parameters.snapshot_source(id)?;
-        self.record_leaf(Op::Parameter(index), source)
+        let cost = mul(source.numel(), 2)?;
+        let next = add(self.snapshot_work, cost)?;
+        let id = self.record_leaf(Op::Parameter(index), source)?;
+        self.snapshot_work = next;
+        Ok(id)
     }
 
     pub fn add(&mut self, a: ValueId, b: ValueId) -> Result<ValueId, Error> {
@@ -143,7 +301,11 @@ impl<'p> Tape<'p> {
         }
         finite(seed, Stage::Seed, 0)?;
         self.plan_backward(root)?;
-        let adjoints = self.run_backward(root, seed)?;
+        let adjoints = if self.reference.is_some() {
+            self.run_reference_backward(root, seed)?
+        } else {
+            self.run_backward(root, seed)?
+        };
         self.state = State::Complete(adjoints);
         Ok(())
     }
@@ -162,15 +324,13 @@ impl<'p> Tape<'p> {
     /// End the tape's borrow and move parameter adjoints into a single-use batch.
     /// Multiple snapshots of one parameter are merged in reverse insertion order.
     pub fn into_parameter_gradients(mut self) -> Result<GradientBatch, Error> {
+        let State::Complete(adjoints) = &self.state else {
+            return Err(Error::BackwardRequired);
+        };
+        let work = self.transfer_work(adjoints)?;
         let State::Complete(adjoints) = &mut self.state else {
             return Err(Error::BackwardRequired);
         };
-        let mut work = add(self.parameters.len(), mul(self.nodes.entries.len(), 2)?)?;
-        for (node, gradient) in self.nodes.entries.iter().zip(&adjoints.entries) {
-            if let (Op::Parameter(_), Some(gradient)) = (node.op, gradient) {
-                work = add(work, mul(gradient.tensor.numel(), 4)?)?;
-            }
-        }
         self.parameters
             .limits()
             .check_work(Pass::GradientTransfer, work)?;
@@ -192,6 +352,16 @@ impl<'p> Tape<'p> {
             }
         }
         Ok(batch)
+    }
+
+    fn transfer_work(&self, adjoints: &Table<Option<OwnedTensor>>) -> Result<usize, Error> {
+        let mut work = add(self.parameters.len(), mul(self.nodes.entries.len(), 2)?)?;
+        for (node, gradient) in self.nodes.entries.iter().zip(&adjoints.entries) {
+            if let (Op::Parameter(_), Some(gradient)) = (node.op, gradient) {
+                work = add(work, mul(gradient.tensor.numel(), 4)?)?;
+            }
+        }
+        Ok(work)
     }
 
     fn binary(
@@ -294,22 +464,96 @@ impl<'p> Tape<'p> {
     fn plan_backward(&mut self, root: usize) -> Result<(), Error> {
         self.nodes.entries[root].reachable = self.nodes.entries[root].differentiable;
         // Cover the reachability walk, adjoint table initialization, reverse walk and seed.
-        let mut work = add(mul(self.nodes.entries.len(), 3)?, 2)?;
+        let reference = self.reference.as_ref();
+        let scans = if reference.is_some() { 5 } else { 3 };
+        let mut work = add(mul(self.nodes.entries.len(), scans)?, 2)?;
         self.parameters.limits().check_work(Pass::Backward, work)?;
         for index in (0..self.nodes.entries.len()).rev() {
             let node = &self.nodes.entries[index];
             if node.reachable {
                 let op = node.op;
-                for (side, edge) in op.edges().into_iter().enumerate() {
+                if reference.is_some() {
+                    work = add(work, mul(node.value.tensor.numel(), 5)?)?;
+                }
+                for (side, edge) in self.edges(op).into_iter().enumerate() {
                     if let Some(edge) = edge.filter(|&edge| self.nodes.entries[edge].differentiable)
                     {
-                        work = add(work, op.backward_work(side, &self.nodes.entries, edge)?)?;
+                        let cost = if let Op::Reference(i) = op {
+                            let reference = reference.unwrap();
+                            reference.reverse_work(
+                                reference.nodes.entries[i].kernel,
+                                side,
+                                &self.nodes.entries,
+                                edge,
+                            )?
+                        } else {
+                            op.backward_work(side, &self.nodes.entries, edge)?
+                        };
+                        work = add(work, cost)?;
                         self.nodes.entries[edge].reachable = true;
                     }
                 }
             }
         }
+        self.backward_work = work;
         self.parameters.limits().check_work(Pass::Backward, work)
+    }
+
+    fn run_reference_backward(
+        &self,
+        root: usize,
+        seed: f32,
+    ) -> Result<Table<Option<OwnedTensor>>, Error> {
+        let budget = &self.parameters.budget;
+        let nodes = &self.nodes.entries;
+        let reference = self.reference()?;
+        let mut adjoints = Table::allocate(budget, nodes.len())?;
+        adjoints.entries.resize_with(nodes.len(), || None);
+        let mut pending = Table::allocate(budget, nodes.len())?;
+        pending.entries.resize_with(nodes.len(), || None);
+        if nodes[root].reachable {
+            pending.entries[root] = Some(Table::filled(budget, 1, f64::from(seed))?);
+        }
+        for (index, node) in nodes.iter().enumerate().rev() {
+            let Some(sum) = pending.entries[index].take() else {
+                continue;
+            };
+            let value = &node.value.tensor;
+            let upstream = budget.generate(value.shape(), value.numel(), |i| {
+                finite(sum.entries[i] as f32, Stage::Gradient, i)
+            })?;
+            drop(sum);
+            for (side, edge) in self.edges(node.op).into_iter().enumerate() {
+                let Some(edge) = edge.filter(|&i| nodes[i].differentiable) else {
+                    continue;
+                };
+                let shape = &nodes[edge].value.tensor;
+                let slot = &mut pending.entries[edge];
+                if slot.is_none() {
+                    *slot = Some(Table::filled(budget, shape.numel(), 0_f64)?);
+                }
+                let target = &mut slot.as_mut().unwrap().entries;
+                if let Op::Reference(i) = node.op {
+                    reference.reverse(
+                        budget,
+                        &reference.nodes.entries[i],
+                        nodes,
+                        side,
+                        &upstream.tensor,
+                        target,
+                    )?;
+                } else {
+                    for (i, result) in target.iter_mut().enumerate() {
+                        let delta = node
+                            .op
+                            .backward_coordinate(side, nodes, &upstream.tensor, i);
+                        *result += f64::from(finite(delta, Stage::Contribution, i)?);
+                    }
+                }
+            }
+            adjoints.entries[index] = Some(upstream);
+        }
+        Ok(adjoints)
     }
 
     fn run_backward(&self, root: usize, seed: f32) -> Result<Table<Option<OwnedTensor>>, Error> {
@@ -375,5 +619,51 @@ mod tests {
         assert!(matches!(tape.value(id), Err(Error::InvalidValueId)));
         assert_eq!(tape.sum(id), Err(Error::InvalidValueId));
         assert_eq!(tape.backward(id), Err(Error::InvalidValueId));
+    }
+
+    #[test]
+    fn reference_allocation_failure_preserves_published_state_and_cleans_up() {
+        let mut set = ParameterSet::new(Default::default()).unwrap();
+        let logits = Tensor::zeros(&[1, 1, 260], Default::default()).unwrap();
+        let id = set.insert(logits).unwrap();
+        let baseline = set.accounted_bytes();
+        let revision = set.revision();
+        let mut tape = Tape::for_reference(
+            &set,
+            ReferenceBatch {
+                shape: [1, 1],
+                input: &[1],
+                target: &[2],
+                valid: None,
+                loss: None,
+            },
+            260,
+            1,
+        )
+        .unwrap();
+        let prediction = tape.parameter(id).unwrap();
+        let after_snapshot = set.accounted_bytes();
+        set.budget.fail_allocation_after(2);
+        assert_eq!(
+            tape.next_token_loss(prediction),
+            Err(Error::AllocationFailed)
+        );
+        assert_eq!(tape.metrics().unwrap().values, 1);
+        assert_eq!(set.accounted_bytes(), after_snapshot);
+        let loss = tape.next_token_loss(prediction).unwrap();
+        let before_backward = set.accounted_bytes();
+        set.budget.fail_allocation_after(5);
+        assert_eq!(tape.backward(loss), Err(Error::AllocationFailed));
+        assert_eq!(tape.backward(loss), Err(Error::BackwardAlreadyRun));
+        assert!(matches!(
+            tape.gradient(prediction),
+            Err(Error::BackwardRequired)
+        ));
+        assert_eq!(set.accounted_bytes(), before_backward);
+        assert!(set.gradient(id).unwrap().is_none());
+        assert_eq!(set.revision(), revision);
+        drop(tape);
+        assert_eq!(set.accounted_bytes(), baseline);
+        println!("TASK005 injected forward and reverse allocation failures: AllocationFailed");
     }
 }

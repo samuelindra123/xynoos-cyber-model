@@ -5,12 +5,14 @@ mod budget;
 mod error;
 mod kernels;
 mod parameters;
+mod reference;
 mod tape;
 
 pub use budget::ResourceLimits;
 pub use error::{AutogradError, Pass, Stage};
 pub use parameters::{GradientBatch, ParameterId, ParameterSet, Sgd};
-pub use tape::{Tape, ValueId};
+pub use reference::ReferenceBatch;
+pub use tape::{Tape, TapeMetrics, ValueId};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

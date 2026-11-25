@@ -80,19 +80,51 @@ pub(crate) fn mul(left: usize, right: usize) -> Result<usize, Error> {
 #[derive(Debug)]
 pub(crate) struct Budget {
     pub(crate) limits: ResourceLimits,
-    used: Rc<Cell<usize>>,
+    used: Rc<Ledger>,
+}
+
+#[derive(Debug, Default)]
+struct Ledger {
+    current: Cell<usize>,
+    peak: Cell<usize>,
+    #[cfg(test)]
+    fail_allocation_after: Cell<Option<usize>>,
 }
 
 impl Budget {
     pub(crate) fn new(limits: ResourceLimits) -> Self {
         Self {
             limits,
-            used: Rc::new(Cell::new(0)),
+            used: Rc::new(Ledger::default()),
         }
     }
 
     pub(crate) fn used(&self) -> usize {
-        self.used.get()
+        self.used.current.get()
+    }
+
+    pub(crate) fn peak(&self) -> usize {
+        self.used.peak.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_allocation_after(&self, successes: usize) {
+        self.used.fail_allocation_after.set(Some(successes));
+    }
+
+    #[cfg(test)]
+    fn check_test_allocation(&self) -> Result<(), Error> {
+        match self.used.fail_allocation_after.get() {
+            Some(0) => {
+                self.used.fail_allocation_after.set(None);
+                Err(Error::AllocationFailed)
+            }
+            Some(remaining) => {
+                self.used.fail_allocation_after.set(Some(remaining - 1));
+                Ok(())
+            }
+            None => Ok(()),
+        }
     }
 
     // Cell is exclusively an allocation ledger. It never grants access to values or gradients.
@@ -139,6 +171,8 @@ impl Budget {
         mut coordinate: impl FnMut(usize) -> Result<f32, Error>,
     ) -> Result<OwnedTensor, Error> {
         let mut charge = self.reserve(tensor_bytes(shape.len(), len)?)?;
+        #[cfg(test)]
+        self.check_test_allocation()?;
         let mut data = Vec::new();
         data.try_reserve_exact(len)
             .map_err(|_| Error::AllocationFailed)?;
@@ -155,7 +189,7 @@ impl Budget {
     }
 }
 
-fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
+pub(crate) fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
     let bytes = mul(elements, size_of::<f32>())?;
     if bytes > TensorLimits::MAX_BYTES {
         return Err(TensorError::PayloadLimitExceeded {
@@ -169,21 +203,22 @@ fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
 
 #[derive(Debug)]
 struct Charge {
-    used: Rc<Cell<usize>>,
+    used: Rc<Ledger>,
     bytes: usize,
     limit: usize,
 }
 
 impl Charge {
     fn resize(&mut self, bytes: usize) -> Result<(), Error> {
-        let requested = add(self.used.get() - self.bytes, bytes)?;
+        let requested = add(self.used.current.get() - self.bytes, bytes)?;
         if requested > self.limit {
             return Err(Error::MemoryLimit {
                 requested,
                 limit: self.limit,
             });
         }
-        self.used.set(requested);
+        self.used.current.set(requested);
+        self.used.peak.set(self.used.peak.get().max(requested));
         self.bytes = bytes;
         Ok(())
     }
@@ -191,7 +226,7 @@ impl Charge {
 
 impl Drop for Charge {
     fn drop(&mut self) {
-        self.used.set(self.used.get() - self.bytes);
+        self.used.current.set(self.used.current.get() - self.bytes);
     }
 }
 
@@ -220,6 +255,8 @@ impl<T> Table<T> {
             return Ok(Self::empty());
         }
         let mut charge = budget.reserve(mul(capacity, size_of::<T>())?)?;
+        #[cfg(test)]
+        budget.check_test_allocation()?;
         let mut entries = Vec::new();
         entries
             .try_reserve_exact(capacity)
@@ -229,6 +266,24 @@ impl<T> Table<T> {
             entries,
             _charge: Some(charge),
         })
+    }
+
+    pub(crate) fn filled(budget: &Budget, len: usize, value: T) -> Result<Self, Error>
+    where
+        T: Clone,
+    {
+        let mut table = Self::allocate(budget, len)?;
+        table.entries.resize(len, value);
+        Ok(table)
+    }
+
+    pub(crate) fn copy(budget: &Budget, values: &[T]) -> Result<Self, Error>
+    where
+        T: Copy,
+    {
+        let mut table = Self::allocate(budget, values.len())?;
+        table.entries.extend_from_slice(values);
+        Ok(table)
     }
 
     pub(crate) fn move_work(&self) -> usize {

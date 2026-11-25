@@ -129,6 +129,10 @@ jobs:
       - name: Regenerate and verify independent tokenizer and dataset fixtures
         run: python3 tools/tokenizer_data_oracle.py --check
 
+      - name: Regenerate and verify independent Transformer fixtures and controls
+        timeout-minutes: 2
+        run: python3 tools/transformer_oracle.py --check
+
       - name: Run debug tests and doctests, including all oracles
         shell: bash
         run: |
@@ -151,7 +155,9 @@ jobs:
             test "$(wc -w < "$RUNNER_TEMP/$profile-trajectory.txt")" -eq 102
           done
           cmp "$RUNNER_TEMP/debug-trajectory.txt" "$RUNNER_TEMP/release-trajectory.txt"
-          sha256sum < "$RUNNER_TEMP/debug-trajectory.txt"
+          digest=$(sha256sum < "$RUNNER_TEMP/debug-trajectory.txt")
+          test "${digest%% *}" = e50d201a133838fe64158e0dcf94df894efcf17241f1f16e52232a4e75d41c6a
+          printf '%s\n' "$digest"
           echo '101 observations agree bitwise in both Rust profiles.'
 
       - name: Compare deterministic tokenizer and dataset experiments
@@ -163,7 +169,27 @@ jobs:
             test "$(wc -l < "$RUNNER_TEMP/$profile-task004.txt")" -eq 1
           done
           cmp "$RUNNER_TEMP/debug-task004.txt" "$RUNNER_TEMP/release-task004.txt"
+          test "$(cat "$RUNNER_TEMP/debug-task004.txt")" = 'TASK004_EXPERIMENT 3cd12b220e38e423e5dab918b30d86708d64c8fa5fb9c8c1c8168d51bfb8b5d1'
           cat "$RUNNER_TEMP/debug-task004.txt"
+
+      - name: Confirm accepted and added Rust check totals
+        run: |
+          for profile in debug release; do
+            total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
+            test "$total" -eq 105
+            printf '%s matches 90 accepted and 15 added checks\n' "$profile"
+          done
+
+      - name: Measure isolated Transformer reference passes
+        timeout-minutes: 2
+        run: |
+          for test in mathematical_full_forward_backward_and_tying task004_stream_partial_and_fixed_final_batch; do
+            cargo test -p xynoos-transformer --locked --offline --release --test reference "$test" -- --exact --nocapture
+          done
+
+      - name: Measure bounded Transformer candidate feasibility
+        timeout-minutes: 2
+        run: cargo test -p xynoos-transformer --locked --offline --release --test reference candidate_b1_t32 -- --ignored --exact --nocapture
 
       - name: Build Rust documentation
         env:
