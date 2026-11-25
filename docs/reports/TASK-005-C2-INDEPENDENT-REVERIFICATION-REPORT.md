@@ -28,9 +28,13 @@ binding, complete gradient transfer, successful accumulation, foreign and
 stale rejection, bit preservation, injected rollback and resource cleanup
 were exercised with the candidate helpers.
 
-The final overall verdict is pending successful Foundation CI on the exact
-committed audit head. No owner acceptance, merge or TASK 006 work is authorized
-by this report.
+**Audit verdict: PASS — TASK 005 READY FOR OWNER ACCEPTANCE.** Foundation CI
+run `45611659219` passed on exact source head
+`406975adf50c9b3655fe073435940fd2a4596aa9`, job `139196475829`. The final
+report-only follow-up is also gated by the exact-head PR #16 Foundation check;
+its run and tested SHA are included in the completion handoff. The owner
+retains the acceptance decision. No merge or TASK 006 work is authorized by
+this report.
 
 ## Gate A — resource-policy confinement
 
@@ -192,6 +196,17 @@ provision Colab or run training.
 
 ## Exact-head hosted verification
 
-Pending final audit commit and Foundation CI. The CI URL, job, exact SHA and
-hosted log findings will be recorded here before the report is accepted as
-complete.
+Foundation CI run [`45611659219`](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45611659219)
+passed on `406975adf50c9b3655fe073435940fd2a4596aa9`; job
+[`139196475829`](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45611659219/job/139196475829)
+completed in 1m10s. Hosted checkout verification printed that exact tested
+commit. All 26 job steps passed, including YAML/Markdown/privacy checks,
+locked formatting and Clippy, all independent oracle fixture checks,
+debug/release suites, unchanged 110-check totals per profile, candidate
+feasibility, full scoped candidate reverse, C2 coordinates and finite
+differences, tighter caller cap, matching-shape identity rejection,
+transaction fault controls, scalar control and Rust documentation.
+
+The final documentation follow-up is committed on PR #16 and independently
+checked by the Foundation run attached to its exact final head; the final
+head, run and job are stated in the completion handoff.

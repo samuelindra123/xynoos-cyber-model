@@ -18,9 +18,8 @@
 | Transactional accumulation | Successful first accumulation preserves parameter bits/revision and gradient buffers. Stale and injected allocation failures preserve existing gradient/parameter bits and revision; temporary allocations are released. | Verified |
 | Resource cleanup | Isolated transaction set ledger returns to zero after destruction; rejected auxiliary batch cleanup returns its source set to baseline. | Verified |
 | Preserved regression evidence | Baseline 109 checks/profile, scalar C2 control, four bounded candidate experiments, numerical/gradient/tokenizer/data/Transformer fixtures and accepted resource contracts remain present. | Verified |
-| Exact final audit head and hosted logs | Final SHA, Foundation CI run/job, hosted outcome and log inspection are recorded in the independent re-verification report after dispatch. | Pending |
-| Owner acceptance | Awaiting owner review after exact-head hosted CI; no merge or TASK 006 authorization is implied. | Pending owner |
+| Exact-head hosted CI and inspected logs | Foundation run `45611659219`, job `139196475829`, passed on `406975adf50c9b3655fe073435940fd2a4596aa9`; the exact tested checkout, all required steps, check totals and candidate outputs were inspected. The final report follow-up is rechecked by the PR #16 check on its exact head. | Verified |
+| Owner acceptance | Audit evidence is ready for the owner to accept; no merge or TASK 006 authorization is implied. | Owner decision |
 
-The two pending rows are intentionally different: hosted CI is required to
-complete this audit; owner acceptance is a separate decision after the audit
-is complete.
+The audit is complete for owner review. Owner acceptance remains a separate
+decision.
