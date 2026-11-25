@@ -25,7 +25,7 @@ These are distinct dimensions. **Training compute efficiency** describes the com
 
 ## Architecture research candidates
 
-TASK 005-A must select and justify one bounded initial reference architecture before any model layers are implemented. Research should consider these candidates only where supported by a concrete hypothesis and evaluation plan:
+TASK 005-A selected and justified the bounded native decoder-only Transformer before implementation. The accepted architecture and candidate limits are recorded in the [TASK 005-D acceptance report](../reports/TASK-005-D-FINAL-ACCEPTANCE-REPORT.md). Future architecture research should consider changes only where supported by a concrete hypothesis and evaluation plan:
 
 - Weight tying.
 - RMSNorm.
@@ -49,7 +49,7 @@ Use bounded GitHub Actions by default for CI, builds, mathematical verification,
 
 When measured CPU limits materially prevent the intended objective, assess the affected workload for authorized remote GPU compute. Google Colab is the preferred candidate, using its official CLI for runtime management and execution where supported. Decisions must cite measured throughput, estimated training-token requirements, expected duration, peak memory, architecture constraints, dataset coverage, quality objectives, provider restrictions, and an authorized compute budget.
 
-The official Colab CLI is installed and authenticated in the development environment. Authentication has been verified; provisioning a runtime, remote GPU execution, file transfer, and cleanup have not been verified. Do not represent these operations as tested. Do not provision a runtime, consume compute units, change subscription settings, or purchase billable resources without separate owner authorization. This task did not start a runtime or consume compute units.
+Use the official Colab CLI for runtime management and remote execution where supported. Authentication alone does not establish runtime, GPU, transfer, or cleanup capability. Provisioning, remote GPU execution, file transfer, and runtime cleanup remain unverified until a separately authorized, documented exercise establishes them. Do not represent these operations as tested. Do not provision a runtime, consume compute units, change subscription settings, or purchase billable resources without separate owner authorization.
 
 ## CPU-first low-resource inference goal
 
@@ -65,21 +65,21 @@ CPU-first inference is a permanent deployment goal. Supported low-resource profi
 
 Quantization is not automatically faster. Memory mapping and swap do not replace sufficient RAM. Measure on physical devices representative of each advertised generic hardware profile before claiming compatibility, speed, or memory requirements. Do not publish personal hardware specifications.
 
-## Proposed model family
+## Possible future parameter scales
 
-The following editions are illustrative research targets. They are conditional on data, compute, stability, and evaluation evidence, and are not promised releases.
+The following parameter counts are illustrative research targets. They are conditional on data, compute, stability, and evaluation evidence, and are not promised releases or model-name assignments. Use the numeric-only naming policy in [MODEL_VERSIONING.md](../MODEL_VERSIONING.md).
 
-| Edition | Illustrative parameter target |
+| Research possibility | Approximate parameter target |
 |---|---:|
-| Experimental | 100K–50M |
-| Nano | 125M |
-| Micro | 350M |
-| Edge | 1B |
-| Lite | 3B |
-| Core | 8B |
-| Advanced | 14B |
+| Initial and small-scale exploration | 100K–50M |
+| Larger scale | 125M |
+| Larger scale | 350M |
+| Larger scale | 1B |
+| Larger scale | 3B |
+| Larger scale | 8B |
+| Larger scale | 14B or higher |
 
-Report the actual parameter count for each architecture and edition. Do not force scale-up when training data, compute, numerical stability, or evaluation evidence is insufficient. Smaller editions remain first-class research and deployment targets. Independently trained XYNOOS teacher models may be evaluated for later distillation research into smaller editions. Do not use external pretrained teacher weights. Distillation is not implemented now.
+Report the actual parameter count for each architecture. Do not force scale-up when training data, compute, numerical stability, or evaluation evidence is insufficient. Smaller models remain first-class research and deployment targets. Independently trained XYNOOS models may be evaluated for later distillation research into smaller models. Do not use external pretrained teacher weights. Distillation is not implemented now.
 
 ## Specialization and evaluation
 

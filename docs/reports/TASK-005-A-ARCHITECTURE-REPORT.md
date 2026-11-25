@@ -73,7 +73,7 @@ Negative controls include wrong causal mask/future leakage, scale, QKV reshape/h
 
 Session B handoff: [TASK-005-IMPLEMENTATION-HANDOFF.md](../design/TASK-005-IMPLEMENTATION-HANDOFF.md). Build independent oracle first; implement tiny then small; validate exact VJPs/finite differences and resource use; retain all 90 accepted Rust checks/profile and earlier fixtures. No production training, AdamW, GPU, external data, packing, inference, quantization, checkpoints or model publication. Edits are subject to milestone review and must not treat this design as automatic production authorization.
 
-Scaling direction remains Experimental 100K–50M, Nano 125M, Micro 350M, Edge 1B, Lite 3B, Core 8B, Advanced 14B as conditional research ambition. f32 14B weights alone are ~52.2 GiB; current tensor/autograd resource contracts do not support such models. Larger editions require redesigned parameter/gradient storage, compute, memory, checkpoint and inference contracts. The architecture equations scale coherently, but the current implementation engine does not.
+Possible parameter targets remain approximately 100K–50M, 125M, 350M, 1B, 3B, 8B, and 14B or higher, as conditional research possibilities only. The owner-approved numeric-only naming and versioning policy is documented in [MODEL_VERSIONING.md](../MODEL_VERSIONING.md); these sizes do not imply edition names or automatic version assignments. f32 14B weights alone are ~52.2 GiB; current tensor/autograd resource contracts do not support such models. Larger configurations require redesigned parameter/gradient storage, compute, memory, checkpoint, and inference contracts. The architecture equations scale coherently, but the current implementation engine does not.
 
 ## T. Planning branch and evidence status
 

@@ -20,9 +20,26 @@ Do not weaken a meaningful model-quality objective solely to fit GitHub Actions.
 
 Google Colab is the preferred candidate for authorized remote GPU training when measured CPU limitations materially prevent the intended research objective. Decide using measured throughput, estimated training-token count, projected duration, peak memory, architecture constraints, dataset coverage, quality objectives, provider restrictions, and an explicitly authorized compute budget.
 
-The official Google Colab CLI is installed and authenticated in the development environment. Authentication has been verified, but remote GPU provisioning, execution, file transfer, and runtime cleanup have not been verified. Treat those capabilities as untested until a separately authorized, documented exercise establishes them.
+Use the official Google Colab CLI for runtime management and remote execution where supported. Authentication alone does not establish runtime, GPU, transfer, or cleanup capability. Provisioning, remote GPU execution, file transfer, and runtime cleanup remain unverified until a separately authorized, documented exercise establishes them.
 
 Use the official Colab CLI for runtime management and remote execution where supported. Do not provision a runtime, consume compute units, change subscription settings, purchase resources, or use billable infrastructure without owner authorization. Never publish private account balances or authentication information. Keep private credentials out of the repository.
+
+## Detached long-running training
+
+Authorized long-running training must operate independently of continuous AI-agent supervision. The agent's bounded responsibilities are to:
+
+1. Prepare the experiment and its immutable identity.
+2. Validate configuration, data, dependencies, and resource limits before dispatch.
+3. Dispatch only the explicitly authorized job.
+4. Confirm startup with bounded checks.
+5. Report the experiment identity, status, and artifact locations.
+6. End active supervision.
+
+The training process must manage its own structured logs, loss and step counters, checkpoint creation, optimizer and resume state, non-finite loss detection, gradient-instability detection, resource limits, maximum steps, maximum runtime, graceful termination, failure reports, final artifact generation, and runtime cleanup. It must not depend on an agent to poll logs, keep a session alive, or decide when to stop.
+
+Do not continuously poll training logs using AI reasoning or use open-ended agent monitoring loops. Deterministic CI checks, runtime-owned telemetry, and bounded startup or completion checks are permitted. An agent may return after the job completes or for a separately authorized investigation. Ending an agent session does not imply that the job or its compute use has stopped.
+
+Before relying on detached Colab execution, verify in a separately authorized exercise that the job survives CLI disconnection where supported, checkpoints persist across the relevant session boundary, and runtime cleanup succeeds. These capabilities remain unverified; this policy does not authorize provisioning Colab or consuming compute units.
 
 ## GitHub Actions and future experiments
 
