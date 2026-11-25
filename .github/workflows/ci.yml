@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_BUILD_JOBS: 2
-  RUSTUP_TOOLCHAIN: stable
 
 permissions:
   contents: read
@@ -94,10 +93,13 @@ jobs:
       - name: Validate tracked privacy and artifact policy
         run: python3 tools/check_repository.py
 
-      - name: Install and record stable Rust
+      - name: Install and verify pinned Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-          rustc --version --verbose
+          rustup install --no-self-update
+          expected_version=$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          actual_version=$(rustc --version | cut -d ' ' -f 2)
+          test "$actual_version" = "$expected_version"
+          rustc --version
           cargo --version
           cargo clippy --version
           cargo fmt --version
@@ -114,10 +116,10 @@ jobs:
         run: python3 tools/numerical_oracle.py --check
 
       - name: Run debug tests and doctests, including the oracle
-        run: cargo test --workspace --locked --offline
+        run: cargo test --workspace --locked --offline -- --show-output
 
       - name: Run release tests and doctests, including the oracle
-        run: cargo test --workspace --release --locked --offline
+        run: cargo test --workspace --release --locked --offline -- --show-output
 
       - name: Build Rust documentation
         env:

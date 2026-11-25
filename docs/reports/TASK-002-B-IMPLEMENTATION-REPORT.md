@@ -1,5 +1,7 @@
 # TASK 002-B implementation report
 
+This report records the TASK 002-B baseline. The current capacity contract, pinned toolchain, and oracle rejection evidence are documented in the [TASK 002-D remediation report](TASK-002-D-REMEDIATION-REPORT.md).
+
 ## Repository and specification
 
 The implementation branch is `feat/task-002-b-numerical-foundation`. Its verified `main` baseline is `2d8d5180c2a5c1489afe58a9137da864d5df26e3`. The specification revision is `2ae7e83c395ef64f22e68b7429ae829710586fc6`. The audit, numerical specification, validation plan, implementation handoff, and risk register were read from that pinned revision. Planning CI run 45426914897 succeeded on that revision. The draft implementation pull request records the exact final head and its Action run separately from this tracked report. [Planning PR](https://github.com/samuelindra123/xynoos-cyber-model/pull/1) · [Pinned specification tree](https://github.com/samuelindra123/xynoos-cyber-model/tree/2ae7e83c395ef64f22e68b7429ae829710586fc6/docs) · [Planning CI](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45426914897)

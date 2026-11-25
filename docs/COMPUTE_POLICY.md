@@ -8,7 +8,7 @@ Keep local workloads lightweight: coding, documentation, formatting, static anal
 
 ## Tensor library budgets
 
-Allocating calls enforce a 64 MiB logical payload ceiling per tensor and allow smaller caller budgets. Shape metadata and allocator capacity add to process memory. Matrix products can require considerable computation within the payload budget. Keep local tests small and use the bounded routine CI for full profile validation. [Tensor resource contract](../crates/xynoos-tensor/README.md)
+Allocating calls enforce a 64 MiB ceiling per tensor on both logical f32 payload and the retained f32 buffer capacity reported by `Vec::capacity()`. Callers can supply smaller budgets. An adopted buffer must fit the limit, and newly reserved buffers are checked before values are written. Metadata, allocator overhead, capacity invisible to `Vec`, all other live allocations, process RSS and OS overcommit are outside this per-tensor contract. Callers bound matrix computation separately. Keep local tests small and use the bounded routine CI for full profile validation. [Tensor resource contract](../crates/xynoos-tensor/README.md)
 
 ## GitHub Actions and future experiments
 

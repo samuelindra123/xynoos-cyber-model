@@ -10,18 +10,19 @@ Suitable local tasks include source and documentation editing, formatting, stati
 
 ## Tensor validation
 
-Use the current stable Rust toolchain with Cargo, rustfmt and Clippy. CI selects stable explicitly and records its resolved version alongside the Python version. This toolchain policy tracks stable updates across CI runs while the checked-in `Cargo.lock` fixes dependency resolution. Cargo builds and tests run offline after installing the toolchain.
+Run Cargo through rustup from the repository root. The checked-in `rust-toolchain.toml` selects Rust 1.100.0, the minimal profile, rustfmt and Clippy. `rustup install --no-self-update` installs the selected toolchain and its required components when needed. CI verifies the compiler release against the same file and records the Rust tool versions. `Cargo.lock` fixes dependency resolution, and Cargo builds and tests run offline after toolchain installation. Update the pin as a reviewed change and rerun the validation suite.
 
 From the repository root, run local checks with one build job.
 
 ```sh
-cargo +stable fmt --all -- --check
-cargo +stable clippy --workspace --all-targets --locked --offline -j 1 -- -D warnings
+rustup install --no-self-update
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked --offline -j 1 -- -D warnings
 python3 tools/numerical_oracle.py --check
-cargo +stable test --workspace --locked --offline -j 1
+cargo test --workspace --locked --offline -j 1
 ```
 
-For an intentional fixture change, use `python3 tools/numerical_oracle.py --write` and review the generated diff. CI checks the committed bytes and runs the oracle comparison in debug and release, including doctests and a Rust documentation build. It also runs the original repository checks and scans tracked files for obvious privacy and artifact issues. [Implementation report](reports/TASK-002-B-IMPLEMENTATION-REPORT.md)
+For an intentional fixture change, use `python3 tools/numerical_oracle.py --write` and review the generated diff. CI checks the committed bytes and runs the oracle comparison and bounded negative controls in debug and release. The controls use in-memory variants of one hand-calculated record and check the expected rejection diagnostics. To run just those oracle tests and see the diagnostics locally, use `cargo test -p xynoos-tensor --test numerical_oracle --locked --offline -j 1 -- --show-output`. CI also runs doctests, the Rust documentation build, the original repository checks, and the tracked privacy and artifact scan. [TASK 002-D remediation report](reports/TASK-002-D-REMEDIATION-REPORT.md)
 
 ## Validation and research records
 

@@ -12,7 +12,11 @@ pub enum TensorError {
     ByteCountOverflow { elements: usize },
     /// Logical f32 payload exceeds the effective per-tensor byte limit.
     PayloadLimitExceeded { bytes: usize, limit: usize },
-    /// Fallible reservation failed for the shape or payload.
+    /// The retained capacity in f32 elements cannot be expressed in bytes.
+    RetainedCapacityByteCountOverflow { capacity: usize },
+    /// Retained f32 buffer capacity exceeds the effective per-tensor byte limit.
+    RetainedCapacityLimitExceeded { bytes: usize, limit: usize },
+    /// Fallible reservation failed for the shape or numerical buffer.
     AllocationFailed,
     /// The supplied data length differs from the checked element count.
     DataLengthMismatch { expected: usize, actual: usize },
@@ -48,6 +52,15 @@ impl fmt::Display for TensorError {
             }
             Self::PayloadLimitExceeded { bytes, limit } => {
                 write!(f, "{bytes} payload bytes exceed limit {limit}")
+            }
+            Self::RetainedCapacityByteCountOverflow { capacity } => {
+                write!(
+                    f,
+                    "capacity of {capacity} f32 elements overflows byte count"
+                )
+            }
+            Self::RetainedCapacityLimitExceeded { bytes, limit } => {
+                write!(f, "{bytes} retained capacity bytes exceed limit {limit}")
             }
             Self::AllocationFailed => f.write_str("tensor allocation reservation failed"),
             Self::DataLengthMismatch { expected, actual } => {
