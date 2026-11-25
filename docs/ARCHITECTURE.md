@@ -8,7 +8,7 @@ Potential stages are source registration, license and provenance review, cleanin
 
 ## Native compute and model
 
-The workspace contains one safe Rust crate, `xynoos-tensor`. It owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and bounded fallible allocation. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
+The workspace contains one safe Rust crate, `xynoos-tensor`. It owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and fallible allocation bounded by per-tensor logical payload and retained numerical capacity. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
 
 Gradient computation, embeddings, transformer blocks, causal attention, normalization, losses, and optimizers remain future work. C kernels and external mathematical dependencies would require a separate review.
 

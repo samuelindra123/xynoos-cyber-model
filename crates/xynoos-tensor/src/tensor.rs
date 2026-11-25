@@ -289,6 +289,22 @@ mod retained_capacity_tests {
     }
 
     #[test]
+    fn enforces_the_project_capacity_ceiling_without_large_allocations() {
+        let limit = TensorLimits::MAX_BYTES;
+        let max_capacity = limit / F32_BYTES;
+        let clamped = TensorLimits::new(usize::MAX);
+        assert_eq!(clamped, TensorLimits::default());
+        assert_eq!(validate_retained_capacity(max_capacity, clamped), Ok(()));
+        assert_eq!(
+            validate_retained_capacity(max_capacity + 1, clamped),
+            Err(TensorError::RetainedCapacityLimitExceeded {
+                bytes: limit + F32_BYTES,
+                limit,
+            })
+        );
+    }
+
+    #[test]
     fn checks_length_before_retained_capacity() {
         let data = one_value_with_spare_capacity();
         let limits = TensorLimits::new(0);
