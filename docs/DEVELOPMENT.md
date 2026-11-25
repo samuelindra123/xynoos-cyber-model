@@ -22,7 +22,7 @@ python3 tools/numerical_oracle.py --check
 cargo test --workspace --locked --offline -j 1
 ```
 
-For an intentional fixture change, use `python3 tools/numerical_oracle.py --write` and review the generated diff. CI checks the committed bytes and runs the oracle comparison and bounded negative controls in debug and release. The controls use in-memory variants of one hand-calculated record and check the expected rejection diagnostics. To run just those oracle tests and see the diagnostics locally, use `cargo test -p xynoos-tensor --test numerical_oracle --locked --offline -j 1 -- --show-output`. CI also runs doctests, the Rust documentation build, the original repository checks, and the tracked privacy and artifact scan. [Implementation report](reports/TASK-002-B-IMPLEMENTATION-REPORT.md)
+For an intentional fixture change, use `python3 tools/numerical_oracle.py --write` and review the generated diff. CI checks the committed bytes and runs the oracle comparison and bounded negative controls in debug and release. The controls use in-memory variants of one hand-calculated record and check the expected rejection diagnostics. To run just those oracle tests and see the diagnostics locally, use `cargo test -p xynoos-tensor --test numerical_oracle --locked --offline -j 1 -- --show-output`. CI also runs doctests, the Rust documentation build, the original repository checks, and the tracked privacy and artifact scan. [TASK 002-D remediation report](reports/TASK-002-D-REMEDIATION-REPORT.md)
 
 ## Validation and research records
 
