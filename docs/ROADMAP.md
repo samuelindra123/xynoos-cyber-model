@@ -5,8 +5,8 @@ Milestones are ordered research areas, not delivery dates or completion claims. 
 | Milestone | Scope |
 |---|---|
 | TASK 001 — Repository and Research Foundation | Documentation, license, governance, lightweight CI, and development policies. |
-| TASK 002 — Numerical Computing Foundation | Implementation, bounded numerical validation, and independent review are complete. Final milestone acceptance is contingent on integration of PRs #1, #3, and #2 and successful post-merge CI. [Implementation report](reports/TASK-002-B-IMPLEMENTATION-REPORT.md) · [Final verification](reports/TASK-002-E-FINAL-VERIFICATION-REPORT.md) |
-| TASK 003 — Differentiation and Optimization | Gradient computation, backpropagation, loss functions, optimizers, and numerical gradient verification. |
+| TASK 002 — Numerical Computing Foundation | Accepted and integrated at `c5250543e5a39b087b7daab3d86d69a2af65a703`; exact-head and post-merge CI passed. [Implementation report](reports/TASK-002-B-IMPLEMENTATION-REPORT.md) · [Final verification](reports/TASK-002-E-FINAL-VERIFICATION-REPORT.md) · [Acceptance report](reports/TASK-002-F-FINAL-ACCEPTANCE-REPORT.md) |
+| TASK 003 — Differentiation and Optimization | Planning and owner review precede any implementation authorization. Scope: gradient computation, backpropagation, loss functions, optimizers, numerical gradient verification, and a bounded synthetic learning proof. |
 | TASK 004 — Tokenization and Dataset Infrastructure | Tokenizer research, provenance, data processing, and streaming pipelines. |
 | TASK 005 — Language Model Architecture | Embeddings, causal attention, transformer implementation, and forward/backward computation. |
 | TASK 006 — First Experimental Training | Randomly initialized weights, small reproducible corpus, bounded training experiment, loss measurement, and checkpoint generation. |
