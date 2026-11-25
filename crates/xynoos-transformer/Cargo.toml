@@ -1,0 +1,14 @@
+[package]
+name = "xynoos-transformer"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+xynoos-autograd = { path = "../xynoos-autograd" }
+xynoos-tensor = { path = "../xynoos-tensor" }
+xynoos-data = { path = "../xynoos-data" }
+xynoos-tokenizer = { path = "../xynoos-tokenizer" }
+
+[dev-dependencies]
+serde_json = { version = "=1.0.149", default-features = false, features = ["std"] }

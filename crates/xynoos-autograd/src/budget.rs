@@ -80,19 +80,29 @@ pub(crate) fn mul(left: usize, right: usize) -> Result<usize, Error> {
 #[derive(Debug)]
 pub(crate) struct Budget {
     pub(crate) limits: ResourceLimits,
-    used: Rc<Cell<usize>>,
+    used: Rc<Ledger>,
+}
+
+#[derive(Debug, Default)]
+struct Ledger {
+    current: Cell<usize>,
+    peak: Cell<usize>,
 }
 
 impl Budget {
     pub(crate) fn new(limits: ResourceLimits) -> Self {
         Self {
             limits,
-            used: Rc::new(Cell::new(0)),
+            used: Rc::new(Ledger::default()),
         }
     }
 
     pub(crate) fn used(&self) -> usize {
-        self.used.get()
+        self.used.current.get()
+    }
+
+    pub(crate) fn peak(&self) -> usize {
+        self.used.peak.get()
     }
 
     // Cell is exclusively an allocation ledger. It never grants access to values or gradients.
@@ -155,7 +165,7 @@ impl Budget {
     }
 }
 
-fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
+pub(crate) fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
     let bytes = mul(elements, size_of::<f32>())?;
     if bytes > TensorLimits::MAX_BYTES {
         return Err(TensorError::PayloadLimitExceeded {
@@ -169,21 +179,22 @@ fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
 
 #[derive(Debug)]
 struct Charge {
-    used: Rc<Cell<usize>>,
+    used: Rc<Ledger>,
     bytes: usize,
     limit: usize,
 }
 
 impl Charge {
     fn resize(&mut self, bytes: usize) -> Result<(), Error> {
-        let requested = add(self.used.get() - self.bytes, bytes)?;
+        let requested = add(self.used.current.get() - self.bytes, bytes)?;
         if requested > self.limit {
             return Err(Error::MemoryLimit {
                 requested,
                 limit: self.limit,
             });
         }
-        self.used.set(requested);
+        self.used.current.set(requested);
+        self.used.peak.set(self.used.peak.get().max(requested));
         self.bytes = bytes;
         Ok(())
     }
@@ -191,7 +202,7 @@ impl Charge {
 
 impl Drop for Charge {
     fn drop(&mut self) {
-        self.used.set(self.used.get() - self.bytes);
+        self.used.current.set(self.used.current.get() - self.bytes);
     }
 }
 
@@ -229,6 +240,24 @@ impl<T> Table<T> {
             entries,
             _charge: Some(charge),
         })
+    }
+
+    pub(crate) fn filled(budget: &Budget, len: usize, value: T) -> Result<Self, Error>
+    where
+        T: Clone,
+    {
+        let mut table = Self::allocate(budget, len)?;
+        table.entries.resize(len, value);
+        Ok(table)
+    }
+
+    pub(crate) fn copy(budget: &Budget, values: &[T]) -> Result<Self, Error>
+    where
+        T: Copy,
+    {
+        let mut table = Self::allocate(budget, values.len())?;
+        table.entries.extend_from_slice(values);
+        Ok(table)
     }
 
     pub(crate) fn move_work(&self) -> usize {

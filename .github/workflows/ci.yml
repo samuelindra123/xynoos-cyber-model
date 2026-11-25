@@ -129,6 +129,10 @@ jobs:
       - name: Regenerate and verify independent tokenizer and dataset fixtures
         run: python3 tools/tokenizer_data_oracle.py --check
 
+      - name: Regenerate and verify independent Transformer fixtures and controls
+        timeout-minutes: 2
+        run: python3 tools/transformer_oracle.py --check
+
       - name: Run debug tests and doctests, including all oracles
         shell: bash
         run: |
@@ -164,6 +168,17 @@ jobs:
           done
           cmp "$RUNNER_TEMP/debug-task004.txt" "$RUNNER_TEMP/release-task004.txt"
           cat "$RUNNER_TEMP/debug-task004.txt"
+
+      - name: Measure isolated Transformer reference passes
+        timeout-minutes: 2
+        run: |
+          for test in mathematical_full_forward_backward_and_tying task004_stream_partial_and_fixed_final_batch; do
+            cargo test -p xynoos-transformer --locked --offline --release --test reference "$test" -- --exact --nocapture
+          done
+
+      - name: Measure bounded Transformer candidate feasibility
+        timeout-minutes: 2
+        run: cargo test -p xynoos-transformer --locked --offline --release --test reference candidate_b1_t32 -- --ignored --exact --nocapture
 
       - name: Build Rust documentation
         env:

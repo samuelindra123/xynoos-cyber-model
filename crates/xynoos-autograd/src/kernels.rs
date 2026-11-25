@@ -7,6 +7,7 @@ use crate::AutogradError as Error;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Op {
+    Reference(usize),
     Input,
     Parameter(usize),
     Add(usize, usize),
@@ -32,7 +33,7 @@ impl Op {
     pub(crate) fn edges(self) -> [Option<usize>; 2] {
         use Op::*;
         match self {
-            Input | Parameter(_) => [None, None],
+            Reference(_) | Input | Parameter(_) => [None, None],
             Scale(a, _) | Sum(a) | Mean(a) | Transpose(a) | Mse(a, _) => [Some(a), None],
             Add(a, b) | Subtract(a, b) | Multiply(a, b) | Dot(a, b) | Matmul(a, b) => {
                 [Some(a), Some(b)]
@@ -99,7 +100,7 @@ impl Op {
                 same_shape(tensor(a).shape(), tensor(b).shape())?;
                 reduction(nonempty(tensor(a))?, 3, 3)
             }
-            Input | Parameter(_) => unreachable!("leaves are recorded separately"),
+            Reference(_) | Input | Parameter(_) => unreachable!("leaves are recorded separately"),
         }
     }
 
@@ -132,7 +133,7 @@ impl Op {
                 }
                 scalar((total / t(a).numel() as f64) as f32)
             }
-            Input | Parameter(_) => unreachable!("leaves are recorded separately"),
+            Reference(_) | Input | Parameter(_) => unreachable!("leaves are recorded separately"),
         }
     }
 
@@ -193,7 +194,7 @@ impl Op {
                 let difference = f64::from(t(a).data()[i]) - f64::from(t(b).data()[i]);
                 ((f64::from(g[0]) * 2.0 * difference) / t(a).numel() as f64) as f32
             }
-            Input | Parameter(_) => unreachable!("leaves have no reverse edges"),
+            Reference(_) | Input | Parameter(_) => unreachable!("leaves have no reverse edges"),
         }
     }
 }
