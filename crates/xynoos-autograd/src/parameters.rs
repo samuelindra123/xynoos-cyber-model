@@ -288,3 +288,116 @@ impl Sgd {
         Ok((&parameter.value.tensor, &gradient.tensor))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scalar(value: f32) -> Tensor {
+        Tensor::from_data(&[], &[value], Default::default()).unwrap()
+    }
+
+    fn pair_with_gradients(staging_bytes: usize) -> (ParameterSet, [ParameterId; 2]) {
+        let base = 2 * size_of::<Parameter>() + 4 * size_of::<f32>();
+        let limit = base + staging_bytes + size_of::<f32>();
+        let mut set = ParameterSet::new(ResourceLimits::new(limit, 10, 10, 100)).unwrap();
+        let ids = [
+            set.insert(scalar(1.0)).unwrap(),
+            set.insert(scalar(2.0)).unwrap(),
+        ];
+        for (entry, value) in set.parameters.entries.iter_mut().zip([3.0, 4.0]) {
+            entry.gradient = Some(set.budget.adopt(scalar(value)).unwrap());
+        }
+        assert_eq!(set.accounted_bytes(), base);
+        (set, ids)
+    }
+
+    #[test]
+    fn later_zero_grad_staging_failure_preserves_everything() {
+        let (mut set, ids) = pair_with_gradients(2 * size_of::<Option<OwnedTensor>>());
+        let bytes = set.accounted_bytes();
+        let limit = set.limits().max_bytes();
+        assert_eq!(
+            set.zero_grad(),
+            Err(Error::MemoryLimit {
+                limit,
+                requested: limit + size_of::<f32>()
+            })
+        );
+        assert_eq!(set.accounted_bytes(), bytes);
+        assert_eq!(set.revision(), 2);
+        for (id, (value, gradient)) in ids.into_iter().zip([(1.0, 3.0), (2.0, 4.0)]) {
+            assert_eq!(set.value(id).unwrap().data(), [value]);
+            assert_eq!(set.gradient(id).unwrap().unwrap().data(), [gradient]);
+        }
+    }
+
+    #[test]
+    fn later_sgd_staging_failure_releases_every_candidate() {
+        let (mut set, ids) = pair_with_gradients(2 * size_of::<OwnedTensor>());
+        let bytes = set.accounted_bytes();
+        let limit = set.limits().max_bytes();
+        assert_eq!(
+            Sgd::new(1.0).unwrap().step(&mut set),
+            Err(Error::MemoryLimit {
+                limit,
+                requested: limit + size_of::<f32>()
+            })
+        );
+        assert_eq!(set.accounted_bytes(), bytes);
+        assert_eq!(set.revision(), 2);
+        for (id, (value, gradient)) in ids.into_iter().zip([(1.0, 3.0), (2.0, 4.0)]) {
+            assert_eq!(set.value(id).unwrap().data(), [value]);
+            assert_eq!(set.gradient(id).unwrap().unwrap().data(), [gradient]);
+        }
+    }
+
+    #[test]
+    fn invalid_inventory_shape_finiteness_and_revision_are_rejected() {
+        let mut set = ParameterSet::new(ResourceLimits::default()).unwrap();
+        let id = set.insert(scalar(1.0)).unwrap();
+        let invalid = ParameterId { index: 1, ..id };
+        assert!(matches!(set.value(invalid), Err(Error::InvalidParameterId)));
+        let mut malformed = set.batch().unwrap();
+        malformed.gradients.entries.clear();
+        assert_eq!(
+            set.accumulate_gradients(malformed),
+            Err(Error::InvalidGradientInventory)
+        );
+        let mut malformed = set.batch().unwrap();
+        let vector = Tensor::from_data(&[1], &[1.0], Default::default()).unwrap();
+        malformed.gradients.entries[0] = Some(set.budget.adopt(vector).unwrap());
+        assert!(matches!(
+            set.accumulate_gradients(malformed),
+            Err(Error::Tensor(_))
+        ));
+        let mut malformed = set.batch().unwrap();
+        malformed.gradients.entries[0] = Some(set.budget.adopt(scalar(f32::NAN)).unwrap());
+        assert!(matches!(
+            set.accumulate_gradients(malformed),
+            Err(Error::NonFinite {
+                stage: Stage::Gradient,
+                ..
+            })
+        ));
+        let opt = Sgd::new(1.0).unwrap();
+        let vector = Tensor::from_data(&[1], &[1.0], Default::default()).unwrap();
+        set.parameters.entries[0].gradient = Some(set.budget.adopt(vector).unwrap());
+        assert!(matches!(opt.step(&mut set), Err(Error::Tensor(_))));
+        set.parameters.entries[0].gradient = Some(set.budget.adopt(scalar(f32::NAN)).unwrap());
+        assert!(matches!(
+            opt.step(&mut set),
+            Err(Error::NonFinite {
+                stage: Stage::Gradient,
+                ..
+            })
+        ));
+        set.zero_grad().unwrap();
+        set.revision = u64::MAX;
+        assert_eq!(opt.step(&mut set), Err(Error::RevisionExhausted));
+        assert_eq!(set.insert(scalar(0.0)), Err(Error::RevisionExhausted));
+        assert_eq!(set.value(id).unwrap().data(), [1.0]);
+        assert_eq!(set.gradient(id).unwrap().unwrap().data(), [0.0]);
+        assert_eq!(set.revision(), u64::MAX);
+    }
+}

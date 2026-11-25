@@ -355,3 +355,21 @@ fn accumulate(target: &mut Tensor, i: usize, contribution: f32) -> Result<(), Er
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_owner_out_of_range_is_rejected_before_lookup() {
+        let set = ParameterSet::new(Default::default()).unwrap();
+        let mut tape = Tape::new(&set).unwrap();
+        let id = ValueId {
+            owner: tape.owner,
+            index: usize::MAX,
+        };
+        assert!(matches!(tape.value(id), Err(Error::InvalidValueId)));
+        assert_eq!(tape.sum(id), Err(Error::InvalidValueId));
+        assert_eq!(tape.backward(id), Err(Error::InvalidValueId));
+    }
+}
