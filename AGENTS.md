@@ -17,3 +17,19 @@ All agents must use the canonical repository working directory. Do not create ad
 - Treat CUDA interfaces, cuBLAS, native GPU kernels, CPU SIMD, and optimized matrix operations as future low-level acceleration options. Preserve an independently verifiable CPU reference and require precision-appropriate numerical parity before accepting acceleration.
 - Prefer CPU-first inference and verify compatibility on physical devices before making resource or speed claims. Public documentation must describe generic hardware profiles and must not disclose personal machine specifications.
 - Read [the compute policy](docs/COMPUTE_POLICY.md) and [efficiency-first model engineering direction](docs/design/EFFICIENCY-FIRST-MODEL-ENGINEERING.md) before planning training, acceleration, or deployment work.
+
+## Adaptive AI engineering workflow
+
+- Primary engineering model: GPT-6 Luna. Use medium effort for routine documentation, Git operations, and maintenance; high for ordinary implementation, testing, and debugging; and max for complex milestones, mathematical verification, architecture research, and autonomous end-to-end engineering.
+- Escalate genuinely difficult correctness issues to GPT-6.2 Sol, preferably at high effort. Escalation scope includes complex numerical defects, autograd lifecycle violations, optimizer correctness failures, resource-policy bypass, complex GPU backend problems, security-critical architecture, and unresolved mathematical contradictions.
+- Do not escalate routine engineering only because work remains. Prepare a focused escalation package with the failing behavior, evidence, relevant code, and specific question; return routine follow-up work to the primary agent.
+- Keep independent verification for critical production changes. An implementation agent must not self-certify critical changes.
+- Model routing is an owner-controlled operational preference, not a software dependency. Do not put subscription pricing, private account information, usage statistics, or unsupported performance claims in repository documentation.
+
+## Long-running training execution
+
+Authorized long-running training must not depend on continuous AI-agent supervision. The agent prepares the experiment, validates configuration and prerequisites, dispatches the authorized job, performs bounded startup checks, reports the experiment identity and artifact locations, and then ends active supervision.
+
+The training runtime independently owns structured logs, loss and step measurements, checkpoint and resume state, non-finite loss and gradient-instability detection, resource and step limits, maximum runtime, graceful termination, failure reports, final artifact creation, and runtime cleanup. Do not continuously poll training logs with AI reasoning or create open-ended agent monitoring loops. Deterministic CI and runtime monitoring are allowed. An agent may return after completion or for a separately authorized investigation.
+
+Stopping an agent does not stop compute consumption. Before relying on detached Colab execution, verify that work survives CLI disconnection where supported, checkpoints persist, and runtime cleanup works. Do not claim that detached Colab execution has been verified until a separately authorized exercise establishes it. Do not provision Colab or consume compute units without owner authorization.
