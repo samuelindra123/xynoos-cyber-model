@@ -17,5 +17,6 @@
 | Native 100-update synthetic learning evidence | `tests/learning.rs`; independent Python fixture; trajectory CI | PASS |
 | TASK 002 numerical and behavior preservation | original fixture/hash; exact-head CI both profiles | PASS |
 | Exact implementation SHA has successful bounded CI | run `45551441899`, job `138993302987`, head `9f36a29...` | PASS |
+| Exact audit SHA has successful bounded CI (verified after audit completion) | run `45552465688`, job `138996590397`, head `7ded4ae...`; all reported workflow steps succeeded | PASS |
 | Hosted test logs independently inspected in full | Run/job metadata available; full detailed logs not extracted in this audit | PARTIAL |
 | General LM training / RSS guarantee | Explicitly outside TASK 003 scope and documented policy | NOT APPLICABLE |
