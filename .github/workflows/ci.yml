@@ -95,7 +95,7 @@ jobs:
 
       - name: Install and verify pinned Rust toolchain
         run: |
-          rustup show > /dev/null
+          rustup install --no-self-update
           expected_version=$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
           actual_version=$(rustc --version | cut -d ' ' -f 2)
           test "$actual_version" = "$expected_version"

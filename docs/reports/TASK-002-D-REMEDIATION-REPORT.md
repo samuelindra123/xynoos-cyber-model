@@ -29,7 +29,7 @@ Pembaca fixture Rust yang sama menjalankan fixture lengkap, kontrol positif `1 +
 
 ## Toolchain dan hasil GitHub Actions
 
-`rust-toolchain.toml` menetapkan Rust 1.100.0, profil minimal, rustfmt dan Clippy. Versi ini sama dengan rilis yang dipakai oleh validasi sebelumnya. CI memakai pin repository, memverifikasi versi `rustc`, mencatat versi alat, dan menjalankan Cargo dengan lockfile secara offline setelah memasang toolchain. Workflow memakai satu job GitHub-hosted Ubuntu 24.04, timeout 15 menit, maksimal dua job build Cargo, izin `contents: read`, dan pembatalan run yang tergantikan.
+`rust-toolchain.toml` menetapkan Rust 1.100.0, profil minimal, rustfmt dan Clippy. Versi ini sama dengan rilis yang dipakai oleh validasi sebelumnya. Uji instalasi lokal memunculkan peringatan deprekasi untuk instalasi implisit melalui `rustup show`, sehingga workflow memakai `rustup install --no-self-update` dari root repository. CI memverifikasi versi `rustc` terhadap pin, mencatat versi alat, dan menjalankan Cargo dengan lockfile secara offline setelah memasang toolchain. Workflow memakai satu job GitHub-hosted Ubuntu 24.04, timeout 15 menit, maksimal dua job build Cargo, izin `contents: read`, dan pembatalan run yang tergantikan.
 
 Run `45540891961` menyelesaikan seluruh langkah dengan sukses. Log checkout mencatat `8a3719f9ba8d0b9c847a87189b97a96318d893e5` dan `rustc 1.100.0 (0ef1bc386 2026-11-09)`. Kolom hasil di bawah merujuk ke run tersebut. SHA head final dan CI yang menguji commit laporan ini dicatat di deskripsi PR #2 setelah verifikasi. [Run validasi](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45540891961) · [Pemeriksaan head PR #2](https://github.com/samuelindra123/xynoos-cyber-model/pull/2/checks)
 

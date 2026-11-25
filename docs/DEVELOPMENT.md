@@ -10,12 +10,12 @@ Suitable local tasks include source and documentation editing, formatting, stati
 
 ## Tensor validation
 
-Run Cargo through rustup from the repository root. The checked-in `rust-toolchain.toml` selects Rust 1.100.0, the minimal profile, rustfmt and Clippy. `rustup show` resolves and installs that toolchain and its required components when needed. CI verifies the compiler release against the same file and records the Rust tool versions. `Cargo.lock` fixes dependency resolution, and Cargo builds and tests run offline after toolchain installation. Update the pin as a reviewed change and rerun the validation suite.
+Run Cargo through rustup from the repository root. The checked-in `rust-toolchain.toml` selects Rust 1.100.0, the minimal profile, rustfmt and Clippy. `rustup install --no-self-update` installs the selected toolchain and its required components when needed. CI verifies the compiler release against the same file and records the Rust tool versions. `Cargo.lock` fixes dependency resolution, and Cargo builds and tests run offline after toolchain installation. Update the pin as a reviewed change and rerun the validation suite.
 
 From the repository root, run local checks with one build job.
 
 ```sh
-rustup show
+rustup install --no-self-update
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked --offline -j 1 -- -D warnings
 python3 tools/numerical_oracle.py --check
