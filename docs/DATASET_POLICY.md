@@ -1,6 +1,6 @@
 # Dataset Governance Policy
 
-No dataset is included in this foundation. A source being publicly accessible does not establish permission to download, use for training, or redistribute it.
+TASK 004-B includes a tiny project-authored synthetic test fixture. Training use, redistribution and source acquisition require separately reviewed permission. [Dataset implementation and experiment](reports/TASK-004-B-IMPLEMENTATION-REPORT.md)
 
 Before future use, record source provenance, acquisition date, applicable license and terms, permitted use, transformation steps, version or checksum, and responsible maintainer. Review licensing and privacy risks before acquisition or publication.
 

@@ -45,6 +45,7 @@ jobs:
             test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
           done
           test -s docs/reports/TASK-003-B-IMPLEMENTATION-REPORT.md
+          test -s docs/reports/TASK-004-B-IMPLEMENTATION-REPORT.md
           test -s .github/workflows/ci.yml
           test -s .github/ISSUE_TEMPLATE/bug_report.yml
           test -s .github/ISSUE_TEMPLATE/feature_request.yml
@@ -105,6 +106,12 @@ jobs:
           cargo clippy --version
           cargo fmt --version
 
+      - name: Acquire locked Cargo dependencies
+        timeout-minutes: 2
+        env:
+          CARGO_NET_RETRY: 2
+        run: cargo fetch --locked
+
       - name: Check locked workspace and formatting
         run: |
           cargo metadata --locked --offline --format-version 1 > /dev/null
@@ -119,13 +126,16 @@ jobs:
       - name: Regenerate and verify independent gradient and learning fixtures
         run: python3 tools/gradient_oracle.py --check
 
-      - name: Run debug tests and doctests, including both oracles
+      - name: Regenerate and verify independent tokenizer and dataset fixtures
+        run: python3 tools/tokenizer_data_oracle.py --check
+
+      - name: Run debug tests and doctests, including all oracles
         shell: bash
         run: |
           set -euo pipefail
           cargo test --workspace --locked --offline -- --show-output | tee "$RUNNER_TEMP/debug-tests.txt"
 
-      - name: Run release tests and doctests, including both oracles
+      - name: Run release tests and doctests, including all oracles
         shell: bash
         run: |
           set -euo pipefail
@@ -143,6 +153,17 @@ jobs:
           cmp "$RUNNER_TEMP/debug-trajectory.txt" "$RUNNER_TEMP/release-trajectory.txt"
           sha256sum < "$RUNNER_TEMP/debug-trajectory.txt"
           echo '101 observations agree bitwise in both Rust profiles.'
+
+      - name: Compare deterministic tokenizer and dataset experiments
+        shell: bash
+        run: |
+          set -euo pipefail
+          for profile in debug release; do
+            grep '^TASK004_EXPERIMENT [a-f0-9]\{64\}$' "$RUNNER_TEMP/$profile-tests.txt" > "$RUNNER_TEMP/$profile-task004.txt"
+            test "$(wc -l < "$RUNNER_TEMP/$profile-task004.txt")" -eq 1
+          done
+          cmp "$RUNNER_TEMP/debug-task004.txt" "$RUNNER_TEMP/release-task004.txt"
+          cat "$RUNNER_TEMP/debug-task004.txt"
 
       - name: Build Rust documentation
         env:
