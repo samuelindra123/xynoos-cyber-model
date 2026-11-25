@@ -11,3 +11,5 @@ Do not publish credentials, personal data, private repository contents, unauthor
 Future datasets should be reproducible without redistributing data where licenses prohibit it. Publish manifests and processing code only when lawful, and keep large data outside Git using an appropriate reviewed storage approach.
 
 Dataset licenses, third-party documentation licenses, model-weight licenses, dependency licenses, and generated research artifact terms are reviewed separately from the source code's Apache-2.0 license.
+
+The proposed provenance fields, source-category review questions, split controls, rejection diagnostics, and bounded streaming contract are specified in [TASK 004 dataset and streaming design](design/TASK-004-DATASET-AND-STREAMING-SPEC.md). These are planning requirements until a separately reviewed implementation is accepted. A source marked pending or with unknown training permission is not eligible for tokenizer fitting or training. The first implementation milestone is limited to project-authored synthetic fixtures; it does not authorize external corpus acquisition.
