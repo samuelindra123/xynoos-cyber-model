@@ -126,6 +126,9 @@ jobs:
       - name: Regenerate and verify independent gradient and learning fixtures
         run: python3 tools/gradient_oracle.py --check
 
+      - name: Verify independent AdamW numerical oracle
+        run: python3 tools/adamw_reference.py --check
+
       - name: Regenerate and verify independent tokenizer and dataset fixtures
         run: python3 tools/tokenizer_data_oracle.py --check
 
