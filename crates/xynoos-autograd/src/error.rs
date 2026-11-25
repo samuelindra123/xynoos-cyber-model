@@ -11,6 +11,9 @@ pub enum Pass {
     Accumulation,
     ZeroGrad,
     Sgd,
+    AdamW,
+    WeightedAccumulation,
+    GradientClip,
 }
 
 /// Numerical validation boundary.
@@ -69,6 +72,23 @@ pub enum AutogradError {
         index: usize,
     },
     InvalidLearningRate,
+    InvalidOptimizerConfig,
+    InvalidDecayProduct,
+    InvalidOptimizerState,
+    InvalidBiasPower,
+    InvalidSecondMoment {
+        parameter: usize,
+        index: usize,
+    },
+    InvalidClipThreshold,
+    EmptyParameterSet,
+    EmptySupervision,
+    AccumulatorLimit {
+        limit: usize,
+    },
+    InvalidTrainingPolicy,
+    TrainingPolicyExhausted,
+    CounterExhausted,
     MissingGradient {
         parameter: usize,
     },

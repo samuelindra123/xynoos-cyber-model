@@ -1,0 +1,102 @@
+{
+  "acceptance_metrics": {
+    "heldout_loss_delta_is_reported_not_a_claim_of_domain_intelligence": true,
+    "heldout_loss_must_be_finite": true,
+    "must_update_nonzero_adamw_moments": true,
+    "must_update_nonzero_transformer_parameters": true
+  },
+  "batch": {
+    "loss_mask": "all ones",
+    "rows": 1,
+    "target_shift": 1,
+    "tokens": 32,
+    "valid_mask": "all ones"
+  },
+  "data_order_identity_sha256": "c04af6c6c0d32c749aaf15861d942acb6068eb46ede6c72d155a50c125a02361",
+  "evaluation_procedure": "Measure deterministic mean next-token cross entropy on both held-out combination batches before training and after two updates under the fixed 0.0003-to-0.0001 schedule; do not tune on test-family rows.",
+  "exact_duplicate_normalized_count": 0,
+  "fixed_integration_final_rate": 0.0001,
+  "fixed_integration_peak_rate": 0.0003,
+  "fixture_id": "task006-objective-a-v1",
+  "learning_rate_candidates": [
+    0.0001,
+    0.0003,
+    0.001
+  ],
+  "model_seed": 107,
+  "near_duplicate_limitations": "Case folding, whitespace collapse, and character trigram Jaccard catch surface overlap only; they do not detect semantic paraphrases or prove independent reasoning.",
+  "near_duplicate_pairs": [],
+  "near_duplicate_threshold": 0.82,
+  "provenance": "Project-authored educational patterns; no external corpus or private data.",
+  "sample_order": {
+    "test": [
+      "for item in queue: total += item_value  # one item",
+      "for token in buffer: count += token_value  # one token"
+    ],
+    "train": [
+      "if count == 0: return empty_value  # empty case",
+      "while index < limit: index += 1  # one step"
+    ],
+    "validation": [
+      "if size == 0: return empty_value  # empty case",
+      "while cursor < count: cursor += 1  # one step"
+    ]
+  },
+  "sample_order_seed": 107,
+  "schema_version": 1,
+  "split_rows": {
+    "test": [
+      {
+        "family": "iteration",
+        "text": "for item in queue: total += item_value  # one item\n"
+      },
+      {
+        "family": "iteration",
+        "text": "for token in buffer: count += token_value  # one token\n"
+      }
+    ],
+    "train": [
+      {
+        "family": "conditional",
+        "text": "if count == 0: return empty_value  # empty case\n"
+      },
+      {
+        "family": "loop",
+        "text": "while index < limit: index += 1  # one step\n"
+      }
+    ],
+    "validation": [
+      {
+        "family": "conditional",
+        "text": "if size == 0: return empty_value  # empty case\n"
+      },
+      {
+        "family": "loop",
+        "text": "while cursor < count: cursor += 1  # one step\n"
+      }
+    ]
+  },
+  "split_sha256": {
+    "test": "0d99849a17d8fa39eff4c9fa10d90e8863f6b38e59109391c60ef1a8d593ae24",
+    "train": "7b331a9ad454b11256006f2cdc64300dd73bca2e1cbce15f89c3e889c973dea2",
+    "validation": "5566c0e6939db122e71096f6c1ee2205142326d437b8b9f898d53949f2784a0a"
+  },
+  "template_families": {
+    "test_family_holdout": [
+      "iteration"
+    ],
+    "train": [
+      "conditional",
+      "loop"
+    ],
+    "validation_combination_holdout": [
+      "conditional",
+      "loop"
+    ]
+  },
+  "tokenization": "The existing byte-bpe-v1 artifact encodes each UTF-8 statement. Append EOS, repeat that tokenized statement plus EOS until 33 IDs exist, truncate to 33, then make one B=1,T=32 next-token window. No tokenizer refit.",
+  "tokenizer_algorithm": "byte-bpe-v1",
+  "tokenizer_artifact_sha256": "86aa40996d4a9bfe15491131bbe6fb1b04f5e325a50b23a3d7f0fa06bb56011c",
+  "validation_order_identity_sha256": "dc1534531af128d8675112265e57204d0cdaf7090e61d6735a89bf153ea2d934",
+  "vocabulary_size": 292
+}

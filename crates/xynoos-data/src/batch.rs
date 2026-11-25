@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use xynoos_tokenizer::{Boundaries, SpecialToken, TokenId, Tokenizer, TokenizerLimits};
 
 use crate::{
@@ -84,6 +85,59 @@ pub struct Batch {
 }
 
 impl Batch {
+    /// Construct a bounded batch from already tokenized row-major arrays.
+    /// Semantic token, shift, padding, and mask rules are validated by the
+    /// consuming Transformer; this method enforces only storage shape/caps.
+    pub fn from_parts(
+        rows: usize,
+        width: usize,
+        input: &[TokenId],
+        target: &[TokenId],
+        valid: Option<&[u8]>,
+        loss: Option<&[u8]>,
+    ) -> Result<Self> {
+        let positions = mul(rows, width)?;
+        if rows == 0
+            || width == 0
+            || positions > DatasetLimits::MAX.batch_positions
+            || input.len() != positions
+            || target.len() != positions
+            || valid.is_some_and(|mask| mask.len() != positions)
+            || loss.is_some_and(|mask| mask.len() != positions)
+        {
+            return Err(InvalidTokens);
+        }
+        let masks = usize::from(valid.is_some()) + usize::from(loss.is_some());
+        let required = mul(positions, 2 * size_of::<TokenId>() + masks)?;
+        check(required, DatasetLimits::MAX.token_buffer_bytes, BufferLimit)?;
+        let mut input_copy = allocate(positions)?;
+        input_copy.extend_from_slice(input);
+        let mut target_copy = allocate(positions)?;
+        target_copy.extend_from_slice(target);
+        let valid_copy = valid
+            .map(|values| {
+                let mut copy = allocate(positions)?;
+                copy.extend_from_slice(values);
+                Ok::<_, DatasetError>(copy)
+            })
+            .transpose()?;
+        let loss_copy = loss
+            .map(|values| {
+                let mut copy = allocate(positions)?;
+                copy.extend_from_slice(values);
+                Ok::<_, DatasetError>(copy)
+            })
+            .transpose()?;
+        Ok(Self {
+            rows,
+            width,
+            input: input_copy,
+            target: target_copy,
+            valid: valid_copy,
+            loss: loss_copy,
+        })
+    }
+
     pub fn shape(&self) -> [usize; 2] {
         [self.rows, self.width]
     }
@@ -116,7 +170,8 @@ impl Batch {
         })
     }
 
-    fn retained_bytes(&self) -> Result<usize> {
+    /// Retained vector capacity for inputs, targets, and masks.
+    pub fn retained_bytes(&self) -> Result<usize> {
         let mut used = add(capacity(&self.input)?, capacity(&self.target)?)?;
         for mask in [&self.valid, &self.loss].into_iter().flatten() {
             used = add(used, capacity(mask)?)?;
@@ -163,6 +218,7 @@ pub struct BatchStream<'a> {
     stats: StreamStats,
     done: bool,
     failure: Option<DatasetError>,
+    order_identity: [u8; 32],
 }
 
 impl Dataset {
@@ -209,6 +265,7 @@ impl Dataset {
             limits.token_buffer_bytes,
             BufferLimit,
         )?;
+        let order_identity = stream_identity(self.manifest_sha256(), split, model, config)?;
         Ok(BatchStream {
             reader: self.reader(split),
             model,
@@ -220,6 +277,7 @@ impl Dataset {
             stats: StreamStats::default(),
             done: false,
             failure: None,
+            order_identity,
         })
     }
 }
@@ -229,8 +287,48 @@ fn batch_bytes(positions: usize, masks: bool) -> Result<usize> {
 }
 
 impl BatchStream<'_> {
+    pub fn order_identity(&self) -> [u8; 32] {
+        self.order_identity
+    }
+
     pub fn stats(&self) -> StreamStats {
         self.stats
+    }
+
+    /// Conservative source-owned memory reservation: retained dataset index,
+    /// maximum document and line buffers, and the configured token/batch area.
+    pub fn reserved_memory_bytes(&self) -> Result<usize> {
+        let bytes = self
+            .reader
+            .reserved_memory_bytes()?
+            .checked_add(self.buffer_limit)
+            .ok_or(Overflow)?;
+        Ok(bytes)
+    }
+
+    /// Number of fully yielded batches in the deterministic stream.
+    pub fn cursor(&self) -> u64 {
+        self.stats.batches as u64
+    }
+
+    /// Rebuild stream state from its beginning and position at a committed
+    /// batch boundary. Replayed reads are real work and callers must account
+    /// for them in their run policy.
+    pub fn seek_batches(&mut self, target: u64) -> Result<()> {
+        self.reader.reset();
+        self.tokens = Vec::new();
+        self.start = 0;
+        self.stats = StreamStats::default();
+        self.done = false;
+        self.failure = None;
+        let mut skipped = 0_u64;
+        while skipped < target {
+            if self.next_batch()?.is_none() {
+                return Err(InvalidConfiguration);
+            }
+            skipped = skipped.checked_add(1).ok_or(Overflow)?;
+        }
+        Ok(())
     }
 
     pub fn next_batch(&mut self) -> Result<Option<Batch>> {
@@ -349,6 +447,42 @@ impl BatchStream<'_> {
         self.stats.samples = add(self.stats.samples, 1)?;
         Ok(())
     }
+}
+
+fn stream_identity(
+    manifest: [u8; 32],
+    split: Split,
+    model: &Tokenizer,
+    config: StreamConfig,
+) -> Result<[u8; 32]> {
+    let artifact = xynoos_tokenizer::TokenizerArtifact::serialize(model, config.tokenizer_limits)?;
+    let tokenizer: [u8; 32] = Sha256::digest(artifact).into();
+    let mut hasher = Sha256::new();
+    hasher.update(b"XYNOOS-DATA-ORDER-V1\0");
+    hasher.update(manifest);
+    hasher.update([match split {
+        Split::Train => 0,
+        Split::Validation => 1,
+        Split::Test => 2,
+    }]);
+    hasher.update(tokenizer);
+    for value in [
+        config.batch.sequence_length as u64,
+        config.batch.stride as u64,
+        config.batch.batch_size as u64,
+    ] {
+        hasher.update(value.to_le_bytes());
+    }
+    hasher.update([match config.batch.tail {
+        Tail::Drop => 0,
+        Tail::Pad => 1,
+    }]);
+    hasher.update([u8::from(config.batch.pad_final_batch)]);
+    hasher.update([
+        u8::from(config.boundaries.bos),
+        u8::from(config.boundaries.eos),
+    ]);
+    Ok(hasher.finalize().into())
 }
 
 fn check_document_tokens(tokens: &[TokenId], vocab: usize) -> Result<()> {

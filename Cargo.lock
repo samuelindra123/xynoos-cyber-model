@@ -204,6 +204,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xynoos-training"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "xynoos-autograd",
+ "xynoos-data",
+ "xynoos-tokenizer",
+ "xynoos-transformer",
+]
+
+[[package]]
 name = "xynoos-transformer"
 version = "0.1.0"
 dependencies = [

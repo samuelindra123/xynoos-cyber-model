@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/xynoos-tensor", "crates/xynoos-autograd", "crates/xynoos-tokenizer", "crates/xynoos-data", "crates/xynoos-transformer"]
+members = ["crates/xynoos-tensor", "crates/xynoos-autograd", "crates/xynoos-tokenizer", "crates/xynoos-data", "crates/xynoos-transformer", "crates/xynoos-training"]
 resolver = "2"
 
 [workspace.dependencies]

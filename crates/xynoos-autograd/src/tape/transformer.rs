@@ -45,7 +45,7 @@ impl CandidateReferenceExperimentPolicy {
             .chain([&[D][..]])
     }
 
-    fn validate_inventory(parameters: &ParameterSet) -> Result<(), Error> {
+    pub(crate) fn validate_inventory(parameters: &ParameterSet) -> Result<(), Error> {
         if !parameters.has_candidate_inventory() || parameters.len() != 74 {
             return Err(Error::InvalidCandidateInventory);
         }
