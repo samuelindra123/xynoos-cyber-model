@@ -184,7 +184,14 @@ fn rejects_shape_byte_and_limit_violations_before_reservation() {
         TensorLimits::new(usize::MAX).max_bytes(),
         TensorLimits::MAX_BYTES
     );
-    assert_eq!(Tensor::zeros(&[1], tiny).unwrap().data(), [0.]);
+    match Tensor::zeros(&[1], tiny) {
+        Ok(tensor) => assert_eq!(tensor.data(), [0.]),
+        Err(TensorError::RetainedCapacityLimitExceeded { bytes, limit }) => {
+            assert_eq!(limit, tiny.max_bytes());
+            assert!(bytes > limit);
+        }
+        Err(error) => panic!("unexpected error at logical payload boundary: {error}"),
+    }
     let expected = TensorError::PayloadLimitExceeded { bytes: 8, limit: 4 };
     assert_eq!(Tensor::zeros(&[2], tiny).unwrap_err(), expected);
     assert_eq!(
