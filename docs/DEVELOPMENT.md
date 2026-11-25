@@ -2,23 +2,26 @@
 
 ## Languages and scope
 
-The tensor workspace uses safe Rust and the standard library. Python 3 runs the independent numerical oracle and repository checks. C remains available for future reviewed work.
+The workspace uses safe Rust. The numerical crates use the standard library. Tokenizer and dataset dependency choices are recorded in the TASK 004-B report. Python 3 runs the independent oracles and repository checks. C remains available for future reviewed work.
 
 ## Lightweight local work
 
 Suitable local tasks include source and documentation editing, formatting, static analysis, lightweight unit tests, small numerical and tokenizer experiments, and bounded smoke or inference tests. Avoid large training, large dataset downloads, multi-gigabyte artifacts, heavy dependency installs, prolonged CPU saturation, and unbounded memory allocation.
 
-## Tensor validation
+## Workspace validation
 
-Run Cargo through rustup from the repository root. The checked-in `rust-toolchain.toml` selects Rust 1.100.0, the minimal profile, rustfmt and Clippy. `rustup install --no-self-update` installs the selected toolchain and its required components when needed. CI verifies the compiler release against the same file and records the Rust tool versions. `Cargo.lock` fixes dependency resolution, and Cargo builds and tests run offline after toolchain installation. Update the pin as a reviewed change and rerun the validation suite.
+Run Cargo through rustup from the repository root. The checked-in `rust-toolchain.toml` selects Rust 1.100.0, the minimal profile, rustfmt and Clippy. `rustup install --no-self-update` installs the selected toolchain and its required components when needed. CI verifies the compiler release against the same file and records the Rust tool versions. `Cargo.lock` fixes dependency resolution, and Cargo builds and tests run offline after explicit locked dependency acquisition. Update the pin as a reviewed change and rerun the validation suite.
 
 From the repository root, run local checks with one build job.
 
 ```sh
 rustup install --no-self-update
+cargo fetch --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked --offline -j 1 -- -D warnings
 python3 tools/numerical_oracle.py --check
+python3 tools/gradient_oracle.py --check
+python3 tools/tokenizer_data_oracle.py --check
 cargo test --workspace --locked --offline -j 1
 ```
 
