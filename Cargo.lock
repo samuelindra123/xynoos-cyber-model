@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "xynoos-autograd"
+version = "0.1.0"
+dependencies = [
+ "xynoos-tensor",
+]
+
+[[package]]
 name = "xynoos-tensor"
 version = "0.1.0"
