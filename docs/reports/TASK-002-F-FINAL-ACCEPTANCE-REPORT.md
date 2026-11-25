@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-This report records owner-authorized integration of the numerical foundation, planning record, and independent audit. The final milestone status is contingent on successful validation of the exact implementation pull request head and the resulting `main` revision. No model, tokenizer, autodiff engine, optimizer, training system, or inference runtime is claimed as implemented.
+This report records owner-authorized integration of the numerical foundation, planning record, and independent audit. The final integrated implementation passed exact-head CI and was squash-merged into `main`. Post-merge CI is running on the resulting `main` revision; this report will be finalized after that run succeeds. No model, tokenizer, autodiff engine, optimizer, training system, or inference runtime is claimed as implemented.
 
 ## Accepted evidence
 
@@ -20,7 +20,7 @@ This report records owner-authorized integration of the numerical foundation, pl
 |---|---|---|
 | [PR #3 — independent audit](https://github.com/samuelindra123/xynoos-cyber-model/pull/3) | Squash into `feat/task-002-b-numerical-foundation` | Merged after full CI passed on exact audit head `064f5ace1c44ddc18b4adb97ee6c961a22003196`; merge commit `441173c26ed6eb1c2a476921e8124bb90ee583aa`. |
 | [PR #1 — planning](https://github.com/samuelindra123/xynoos-cyber-model/pull/1) | Squash into `main` | Merged after exact-head CI passed on `2ae7e83c395ef64f22e68b7429ae829710586fc6`; merge commit `73e03fb96bfadce08b5e83aa9da86a6f3398486e`. |
-| [PR #2 — implementation](https://github.com/samuelindra123/xynoos-cyber-model/pull/2) | Squash into `main` after all required checks | Pending final exact-head CI and merge evidence. Record the merge SHA and post-merge `main` CI here after they exist. |
+| [PR #2 — implementation](https://github.com/samuelindra123/xynoos-cyber-model/pull/2) | Squash into `main` after all required checks | Merged after exact-head CI passed on `c2d318c2d5cbc8ae273bd779d72aa8431cc767ba` ([run 45542774938](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45542774938)); merge commit `6de65b2afceeaed7148edf7b8a90fa5b30c19447`. Post-merge CI is running on that merge commit. |
 
 Planning documents remain explicitly framed as proposals and historical records. Current README and API documentation define actual capabilities. Roadmap marks TASK 002 implementation and review complete with final acceptance contingent on integration and post-merge CI. TASK 001, TASK 002-A/B/C/D/E reports are preserved. TASK 002-D has been faithfully translated into professional English without changing its recorded results, claims, or limitations; its previous text remains recoverable from Git history.
 
@@ -50,4 +50,4 @@ The repository description was updated to: “An open-source research project de
 - [ ] Final `main` SHA, merge SHA, CI links, and test results recorded.
 - [ ] Canonical local checkout synchronized, clean, and limited to one working tree.
 
-**Milestone status:** Integration in progress; do not mark TASK 002 accepted until every unchecked closure item is verified.
+**Milestone status:** Integration complete; post-merge validation remains in progress. Do not mark TASK 002 accepted until `main` CI succeeds.
