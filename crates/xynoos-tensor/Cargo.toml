@@ -1,0 +1,7 @@
+[package]
+name = "xynoos-tensor"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Safe, dense CPU tensor reference operations for XYNOOS"
+publish = false
