@@ -193,6 +193,39 @@ impl Budget {
             _charge: charge,
         })
     }
+
+    /// Allocate a row-major collection of binary64 accumulation rows while
+    /// charging retained vector capacities to the shared parameter ledger.
+    pub(crate) fn f64_table(&self, lengths: &[usize]) -> Result<OwnedF64Table, Error> {
+        let requested = lengths.iter().try_fold(
+            mul(lengths.len(), size_of::<Vec<f64>>())?,
+            |total, &length| add(total, mul(length, size_of::<f64>())?),
+        )?;
+        let mut charge = self.reserve(requested)?;
+        #[cfg(test)]
+        self.check_test_allocation()?;
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(lengths.len())
+            .map_err(|_| Error::AllocationFailed)?;
+        for &length in lengths {
+            #[cfg(test)]
+            self.check_test_allocation()?;
+            let mut row = Vec::new();
+            row.try_reserve_exact(length)
+                .map_err(|_| Error::AllocationFailed)?;
+            row.resize(length, 0.0);
+            rows.push(row);
+        }
+        let actual = rows.iter().try_fold(
+            mul(rows.capacity(), size_of::<Vec<f64>>())?,
+            |total, row| add(total, mul(row.capacity(), size_of::<f64>())?),
+        )?;
+        charge.resize(actual)?;
+        Ok(OwnedF64Table {
+            rows,
+            _charge: charge,
+        })
+    }
 }
 
 pub(crate) fn tensor_bytes(rank: usize, elements: usize) -> Result<usize, Error> {
@@ -239,6 +272,12 @@ impl Drop for Charge {
 #[derive(Debug)]
 pub(crate) struct OwnedTensor {
     pub(crate) tensor: Tensor,
+    _charge: Charge,
+}
+
+#[derive(Debug)]
+pub(crate) struct OwnedF64Table {
+    pub(crate) rows: Vec<Vec<f64>>,
     _charge: Charge,
 }
 

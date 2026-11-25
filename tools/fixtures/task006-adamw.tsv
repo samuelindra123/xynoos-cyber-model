@@ -9,6 +9,8 @@ epsilon_outside_sqrt	bada740d
 negative_control_epsilon_inside_sqrt	ba2576bd
 decoupled_weight_decay	3f5bed62
 negative_control_coupled_l2	3f680000
+negative_control_decay_after_adaptive	3f5d1746
+negative_control_tied_embedding_double_decay	3f4fc46c
 bias_corrected	3eccccce	3f800000	40000000
 negative_control_no_bias_correction	3edbcbd1
 token_weighted_mean	3faaaaab	3f800000

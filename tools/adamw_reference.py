@@ -253,6 +253,15 @@ def fixture_rows():
     output.append(row("negative_control_coupled_l2", bits(coupled)))
     if decoupled.parameters[0] == coupled:
         raise AssertionError("coupled L2 negative control did not distinguish")
+    rate = f32(0.1)
+    decay_scale = 1.0 - rate * decay_config.weight_decay
+    adaptive = rate / (1.0 + decay_config.epsilon)
+    decay_after_adaptive = f32((1.0 - adaptive) * decay_scale)
+    tied_double_decay = f32(decay_scale * decay_scale - adaptive)
+    output.append(row("negative_control_decay_after_adaptive", bits(decay_after_adaptive)))
+    output.append(row("negative_control_tied_embedding_double_decay", bits(tied_double_decay)))
+    if decay_after_adaptive == decoupled.parameters[0] or tied_double_decay == decoupled.parameters[0]:
+        raise AssertionError("update-order or tied-decay negative control did not distinguish")
 
     bias_config = Config.make(beta1=0.5, beta2=0.5, epsilon=1e-6, weight_decay=0.0)
     corrected = step(fresh([0.5]), [2.0], bias_config, f32(0.1))

@@ -7,8 +7,8 @@ mod init;
 
 use std::fmt;
 use xynoos_autograd::{
-    GradientBatch, ParameterId, ParameterSet, ReferenceTransformerBackward,
-    ReferenceTransformerEvaluation, ResourceLimits, TapeMetrics,
+    AdamW, AdamWStepMetrics, CandidateTrainingPolicy, GradientBatch, ParameterId, ParameterSet,
+    ReferenceTransformerBackward, ReferenceTransformerEvaluation, ResourceLimits, TapeMetrics,
 };
 use xynoos_data::Batch;
 use xynoos_tensor::Tensor;
@@ -167,6 +167,30 @@ impl Transformer {
         &self.parameters
     }
 
+    /// Clear persistent gradients after an aborted optimizer boundary.
+    pub fn clear_gradients(&mut self) -> Result<(), Error> {
+        Ok(self.parameters.zero_grad()?)
+    }
+
+    pub fn optimizer_step(
+        &mut self,
+        optimizer: &mut AdamW,
+        learning_rate: f32,
+    ) -> Result<AdamWStepMetrics, Error> {
+        Ok(optimizer.step(&mut self.parameters, learning_rate)?)
+    }
+
+    /// Restore fixed-candidate weights before optimizer attachment.
+    pub fn restore_checkpoint_values(
+        &mut self,
+        values: &[Vec<f32>],
+        completed_updates: u64,
+    ) -> Result<(), Error> {
+        Ok(self
+            .parameters
+            .restore_candidate_values(values, completed_updates)?)
+    }
+
     pub fn inventory(&self) -> impl ExactSizeIterator<Item = (ParameterSpec, ParameterId)> + '_ {
         let entries = self.parameters.len();
         (0..entries).map(move |index| {
@@ -231,6 +255,77 @@ impl Transformer {
         ))
     }
 
+    /// Consume one batch under the separate finite repeated-training policy.
+    /// An all-unsupervised batch is charged as input and returned without a
+    /// forward pass, matching the training lifecycle contract.
+    pub fn evaluate_candidate_training<'a>(
+        &'a self,
+        batch: &Batch,
+        policy: &mut CandidateTrainingPolicy,
+    ) -> Result<CandidateTrainingBatch<'a>, Error> {
+        if self.config != Config::RESEARCH_CANDIDATE {
+            return Err(Error::InvalidCandidateConfiguration {
+                actual: self.config,
+            });
+        }
+        if batch.shape() != CandidateReferenceExperimentPolicy::BATCH_SHAPE {
+            return Err(Error::InvalidCandidateBatchShape {
+                actual: batch.shape(),
+            });
+        }
+        let positions = batch.input().len();
+        if batch.target().len() != positions {
+            return Err(Error::InvalidBatchShape);
+        }
+        let valid = batch.valid_mask();
+        let loss = batch.loss_mask();
+        if valid.is_some_and(|mask| mask.len() != positions)
+            || loss.is_some_and(|mask| mask.len() != positions)
+        {
+            return Err(Error::InvalidBatchShape);
+        }
+        let mut consumed = 0_u64;
+        let mut supervised = 0_u64;
+        for index in 0..positions {
+            let is_valid = valid.is_none_or(|mask| mask[index] == 1);
+            if valid.is_some_and(|mask| mask[index] > 1) || loss.is_some_and(|mask| mask[index] > 1)
+            {
+                return Err(xynoos_autograd::AutogradError::InvalidMask { index }.into());
+            }
+            let is_supervised = loss.map_or(is_valid, |mask| mask[index] == 1);
+            if is_valid {
+                consumed = consumed.checked_add(1).ok_or(Error::InvalidBatchShape)?;
+            }
+            if is_supervised {
+                if !is_valid {
+                    return Err(xynoos_autograd::AutogradError::InvalidMask { index }.into());
+                }
+                supervised = supervised.checked_add(1).ok_or(Error::InvalidBatchShape)?;
+            }
+        }
+        policy.admit_microbatch(&self.parameters, batch.shape(), consumed, supervised)?;
+        if supervised == 0 {
+            return Ok(CandidateTrainingBatch::Skipped {
+                consumed_tokens: consumed,
+            });
+        }
+        let evaluation = self.evaluate_candidate(
+            ReferenceBatch {
+                shape: batch.shape(),
+                input: batch.input(),
+                target: batch.target(),
+                valid: batch.valid_mask(),
+                loss: batch.loss_mask(),
+            },
+            CandidateReferenceExperimentPolicy,
+        )?;
+        Ok(CandidateTrainingBatch::Evaluated {
+            evaluation,
+            consumed_tokens: consumed,
+            supervised_tokens: supervised,
+        })
+    }
+
     fn preflight_batch(&self, shape: [usize; 2]) -> Result<(), Error> {
         self.config.preflight_batch(
             shape,
@@ -270,6 +365,21 @@ fn spec_at(config: Config, entries: usize, index: usize) -> ParameterSpec {
 /// A complete reference forward pass. Dropping it releases its tape charges.
 #[derive(Debug)]
 pub struct Evaluation<'a>(ReferenceTransformerEvaluation<'a>);
+
+#[derive(Debug)]
+// Keep the forward tape inline: boxing adds an untracked owned allocation to
+// every candidate batch and this enum is short-lived at the training boundary.
+#[allow(clippy::large_enum_variant)]
+pub enum CandidateTrainingBatch<'a> {
+    Skipped {
+        consumed_tokens: u64,
+    },
+    Evaluated {
+        evaluation: Evaluation<'a>,
+        consumed_tokens: u64,
+        supervised_tokens: u64,
+    },
+}
 
 impl<'a> Evaluation<'a> {
     pub fn logits(&self) -> &Tensor {

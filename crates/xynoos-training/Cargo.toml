@@ -1,0 +1,13 @@
+[package]
+name = "xynoos-training"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+sha2.workspace = true
+serde_json = { version = "=1.0.149", default-features = false, features = ["std"] }
+xynoos-autograd = { path = "../xynoos-autograd" }
+xynoos-data = { path = "../xynoos-data" }
+xynoos-tokenizer = { path = "../xynoos-tokenizer" }
+xynoos-transformer = { path = "../xynoos-transformer" }

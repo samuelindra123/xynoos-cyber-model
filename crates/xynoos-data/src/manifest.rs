@@ -448,6 +448,23 @@ pub struct DatasetReader<'a> {
 }
 
 impl<'a> DatasetReader<'a> {
+    /// Conservative retained-metadata and per-document/reader buffer reserve.
+    pub fn reserved_memory_bytes(&self) -> Result<usize> {
+        let limits = self.dataset.limits;
+        self.dataset
+            .retained_metadata
+            .checked_add(limits.document_bytes)
+            .and_then(|bytes| bytes.checked_add(limits.reader_bytes))
+            .ok_or(Overflow)
+    }
+
+    /// Reset deterministic iteration to the first record of this split.
+    pub fn reset(&mut self) {
+        self.next = 0;
+        self.done = false;
+        self.failure = None;
+    }
+
     pub fn next_document(&mut self) -> Result<Option<Document<'a>>> {
         if let Some(error) = self.failure {
             return Err(error);

@@ -10,7 +10,11 @@ mod tape;
 
 pub use budget::ResourceLimits;
 pub use error::{AutogradError, Pass, Stage};
-pub use parameters::{GradientBatch, ParameterId, ParameterSet, Sgd};
+pub use parameters::{
+    AdamW, AdamWConfig, AdamWStepMetrics, CandidateTrainingLimits, CandidateTrainingPolicy,
+    GradientBatch, GradientClipMetrics, ParameterId, ParameterSet, Sgd,
+    WeightedGradientAccumulator,
+};
 pub use reference::ReferenceBatch;
 pub use tape::{
     CandidateReferenceExperimentPolicy, ReferenceTransformerBackward,
