@@ -181,6 +181,106 @@ fn finite_differences(model: &Transformer, tok: &Tokenizer, fixture: &Value, bat
     println!("TASK005-R candidate FD tensors {covered:?}");
 }
 
+fn c2_candidate_coordinates(
+    grads: &GradientBatch,
+    model: &Transformer,
+    tok: &Tokenizer,
+    fixture: &Value,
+    batch: &OwnedBatch,
+) {
+    let records = fixture["c2_coordinates"].as_array().unwrap();
+    assert_eq!(records.len(), 12);
+    let mut analytic = Comparison::default();
+    for row in records {
+        let name = row["name"].as_str().unwrap();
+        let index = row["index"].as_u64().unwrap() as usize;
+        let (_, id) = model
+            .inventory()
+            .find(|(spec, _)| spec.to_string() == name)
+            .unwrap();
+        let actual = grads.gradient(id).unwrap().unwrap().data()[index];
+        analytic.compare(actual, decode(&row["gradient"]), 2e-5, 2e-5);
+    }
+    analytic.report("C2 independently fixed candidate gradients");
+
+    // A real Transformer control: omitting the lookup edge from tied E must
+    // disagree with the published native shared-embedding adjoint.
+    let embedding = &fixture["embedding"];
+    let index = embedding["indexes"][0].as_u64().unwrap() as usize;
+    let id = model.parameters().id_at(0).unwrap();
+    let native = grads.gradient(id).unwrap().unwrap().data()[index];
+    let output_only = values(&embedding["output"])[0];
+    let disagreement = (f64::from(native) - f64::from(output_only)).abs();
+    assert!(
+        disagreement > 0.01,
+        "tied-edge omission control: {disagreement}"
+    );
+    println!("TASK005-C2 Transformer tied-edge omission disagreement={disagreement:.12}");
+
+    let params: Vec<_> = model
+        .inventory()
+        .map(|(_, id)| model.parameters().value(id).unwrap().data())
+        .collect();
+    for step in [0.001_f64, 0.003] {
+        let mut count = 0;
+        let mut max_abs = 0.0_f64;
+        let mut max_relative = 0.0_f64;
+        for row in records {
+            let name = row["name"].as_str().unwrap();
+            let index = row["index"].as_u64().unwrap() as usize;
+            let entry = model
+                .inventory()
+                .position(|(spec, _)| spec.to_string() == name)
+                .unwrap();
+            let original = f64::from(params[entry][index]);
+            let high = (original + step) as f32;
+            let low = (original - step) as f32;
+            assert!(f64::from(low) < original && original < f64::from(high));
+            let loss = |at| {
+                Transformer::from_coordinates(CONFIG, tok, Default::default(), |spec, i| {
+                    if spec.index() == entry && i == index {
+                        at
+                    } else {
+                        params[spec.index()][i]
+                    }
+                })
+                .unwrap()
+                .evaluate(batch.view())
+                .unwrap()
+                .loss()
+            };
+            let fd =
+                (f64::from(loss(high)) - f64::from(loss(low))) / (f64::from(high) - f64::from(low));
+            let expected_analytic = f64::from(decode(&row["gradient"]));
+            let analytic = f64::from(
+                grads
+                    .gradient(model.parameters().id_at(entry).unwrap())
+                    .unwrap()
+                    .unwrap()
+                    .data()[index],
+            );
+            let tolerance = 2e-3 + 2e-2 * fd.abs();
+            assert!(
+                (analytic - fd).abs() <= tolerance,
+                "{name} {index}: {analytic} vs {fd}"
+            );
+            assert!(
+                (expected_analytic - fd).abs() <= tolerance,
+                "independent analytic {name} {index}: {expected_analytic} vs {fd}"
+            );
+            max_abs = max_abs.max((analytic - fd).abs());
+            if fd != 0.0 {
+                max_relative = max_relative.max((analytic - fd).abs() / fd.abs());
+            }
+            count += 1;
+        }
+        assert_eq!(count, 12);
+        println!(
+            "TASK005-C2 candidate FD h={step} n={count} max_abs={max_abs:.9e} max_rel_nonzero={max_relative:.9e}"
+        );
+    }
+}
+
 #[test]
 #[ignore = "bounded hosted release candidate oracle, reverse and transfer"]
 fn full_candidate_b1_t32() {
@@ -284,6 +384,7 @@ fn full_candidate_b1_t32() {
     analytic.report("candidate analytic");
     aggregates.report("candidate gradient aggregates");
     embedded(&grads, &model, &fixture["embedding"], "candidate shared E");
+    c2_candidate_coordinates(&grads, &model, &tok, &fixture, &original);
 
     let start = Instant::now();
     let accumulation_work = model.accumulate_gradients_with_work(grads).unwrap();
@@ -467,6 +568,70 @@ fn candidate_shape_and_configuration_are_bound() {
 }
 
 #[test]
+#[ignore = "bounded hosted resource-policy identity control"]
+fn c2_matching_shapes_without_candidate_inventory_identity_are_rejected() {
+    let shapes: Vec<Vec<usize>> = std::iter::once(vec![292, 96])
+        .chain((0..8).flat_map(|_| {
+            [
+                vec![96],
+                vec![96, 96],
+                vec![96, 96],
+                vec![96, 96],
+                vec![96, 96],
+                vec![96],
+                vec![96, 256],
+                vec![96, 256],
+                vec![256, 96],
+            ]
+        }))
+        .chain(std::iter::once(vec![96]))
+        .collect();
+    assert_eq!(shapes.len(), 74);
+    let mut parameters =
+        xynoos_autograd::ParameterSet::with_inventory(Default::default(), 74, 914_400, 131)
+            .unwrap();
+    for shape in &shapes {
+        parameters.insert_generated(shape, |_| Ok(1.0)).unwrap();
+    }
+    let baseline = parameters.accounted_bytes();
+    let peak = parameters.peak_accounted_bytes();
+    let revision = parameters.revision();
+    let input: [u32; 32] = std::array::from_fn(|i| i as u32);
+    let target: [u32; 32] = std::array::from_fn(|i| i as u32 + 1);
+    let batch = ReferenceBatch {
+        shape: [1, 32],
+        input: &input,
+        target: &target,
+        valid: None,
+        loss: None,
+    };
+    assert_eq!(
+        xynoos_autograd::ReferenceTransformerEvaluation::record_candidate(
+            &parameters,
+            batch,
+            Policy,
+        )
+        .unwrap_err(),
+        A::InvalidCandidateInventory,
+    );
+    assert_eq!(parameters.accounted_bytes(), baseline);
+    assert_eq!(parameters.peak_accounted_bytes(), peak);
+    assert_eq!(parameters.revision(), revision);
+    for index in 0..74 {
+        let id = parameters.id_at(index).unwrap();
+        assert!(
+            parameters
+                .value(id)
+                .unwrap()
+                .data()
+                .iter()
+                .all(|&value| value == 1.0)
+        );
+        assert!(parameters.gradient(id).unwrap().is_none());
+    }
+}
+
+#[test]
 fn malformed_mask_and_target_shift_combinations() {
     let model = explicit(Config::MATHEMATICAL, &Tokenizer::byte());
     let baseline = model.parameters().accounted_bytes();
@@ -554,6 +719,8 @@ fn malformed_mask_and_target_shift_combinations() {
 #[test]
 #[ignore = "bounded hosted release check of tightened work limit and policy scope"]
 fn candidate_policy_preserves_tighter_work_limit() {
+    // ResourceLimits clamps caller work budgets to the ordinary 100M ceiling.
+    // This one-unit reduction proves the scoped policy does not raise it.
     let work = ResourceLimits::MAX_WORK - 1;
     let limits = ResourceLimits::new(
         ResourceLimits::MAX_BYTES,
