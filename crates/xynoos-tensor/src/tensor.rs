@@ -96,6 +96,31 @@ impl Tensor {
         })
     }
 
+    /// Fallibly copy the shape and logical values under the supplied tensor limits.
+    pub fn try_clone(&self, limits: TensorLimits) -> Result<Self, TensorError> {
+        Self::from_data(self.shape(), self.data(), limits)
+    }
+
+    /// Checked total bytes of the retained shape and numerical vector capacities.
+    ///
+    /// This includes spare capacity and excludes the inline tensor and allocator overhead.
+    pub fn retained_bytes(&self) -> Result<usize, TensorError> {
+        let overflow = || TensorError::RetainedCapacityByteCountOverflow {
+            capacity: self.data.capacity(),
+        };
+        let shape_bytes = self
+            .shape
+            .capacity()
+            .checked_mul(size_of::<usize>())
+            .ok_or_else(overflow)?;
+        let data_bytes = self
+            .data
+            .capacity()
+            .checked_mul(size_of::<f32>())
+            .ok_or_else(overflow)?;
+        shape_bytes.checked_add(data_bytes).ok_or_else(overflow)
+    }
+
     /// Borrow the dimension lengths in axis order.
     pub fn shape(&self) -> &[usize] {
         &self.shape
@@ -204,6 +229,28 @@ mod retained_capacity_tests {
         let mut data = Vec::with_capacity(2);
         data.push(3.0);
         data
+    }
+
+    #[test]
+    fn clone_copies_values_and_respects_its_own_limits() {
+        let original = Tensor::from_vec(
+            &[1],
+            one_value_with_spare_capacity(),
+            TensorLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            original.retained_bytes().unwrap(),
+            original.shape.capacity() * size_of::<usize>() + original.data.capacity() * F32_BYTES,
+        );
+        let mut copied = original.try_clone(TensorLimits::new(F32_BYTES)).unwrap();
+        *copied.get_flat_mut(0).unwrap() = -1.0;
+        assert_eq!(original.data(), [3.0]);
+        assert_eq!(copied.shape(), original.shape());
+        assert!(matches!(
+            original.try_clone(TensorLimits::new(0)),
+            Err(TensorError::PayloadLimitExceeded { .. })
+        ));
     }
 
     #[test]
