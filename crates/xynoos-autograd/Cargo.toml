@@ -1,0 +1,10 @@
+[package]
+name = "xynoos-autograd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Bounded reverse-mode differentiation and transactional SGD for XYNOOS"
+publish = false
+
+[dependencies]
+xynoos-tensor = { path = "../xynoos-tensor" }

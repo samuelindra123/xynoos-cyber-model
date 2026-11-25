@@ -1,6 +1,6 @@
 # Architecture
 
-The native tensor library is the first implemented component. The remaining sections describe research directions for later milestones.
+The accepted native workspace implements a CPU tensor library, first-order reverse-mode autodiff, mean squared error, and transactional SGD. The five-sample linear-regression test is a synthetic learning proof that exercises this engine; it is not language-model training.
 
 ## Data and representation
 
@@ -8,13 +8,13 @@ Potential stages are source registration, license and provenance review, cleanin
 
 ## Native compute and model
 
-The workspace contains one safe Rust crate, `xynoos-tensor`. It owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and fallible allocation bounded by per-tensor logical payload and retained numerical capacity. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
+`xynoos-tensor` owns dense, contiguous, row-major `Vec<f32>` storage with dynamic rank, checked shape and index arithmetic, and fallible allocation bounded by per-tensor logical payload and retained numerical capacity. Scalar tensors contain one value and zero-sized shapes contain none. Elementwise operations use binary32, and sum, dot and matmul accumulate sequentially in binary64. A Python standard-library oracle validates the arithmetic and layout. [Tensor contracts](../crates/xynoos-tensor/README.md)
 
-Gradient computation, embeddings, transformer blocks, causal attention, normalization, losses, and optimizers remain future work. C kernels and external mathematical dependencies would require a separate review.
+`xynoos-autograd` uses a bounded tape of immutable tensor snapshots and manually defined first-order backward kernels. A gradient batch transfers owned adjoints to the parameter set after backward. Transactional SGD stages updates before committing. The implemented operation set and ownership rules are described in [autograd contracts](../crates/xynoos-autograd/README.md); the accepted work is recorded in the [TASK 003 final acceptance report](reports/TASK-003-D-FINAL-ACCEPTANCE-REPORT.md). C kernels and external mathematical dependencies would require a separate review. No tokenizer, Transformer, language-model training pipeline, checkpoint system, or inference runtime is implemented.
 
 ## Training and artifacts
 
-A future training runtime should support bounded workloads, deterministic configuration where possible, gradient accumulation if useful, checkpoint save/restore, and resource reporting. Model weights are intended to be independently trained from random initialization, subject to future training milestones. No weights are currently included.
+A future language-model training runtime should support bounded workloads, deterministic configuration where possible, gradient accumulation if useful, checkpoint save/restore, and resource reporting. Model weights are intended to be independently trained from random initialization, subject to future training milestones. The synthetic regression test does not produce language-model weights; no trained language model or model checkpoint is currently included.
 
 ## Inference and evaluation
 
