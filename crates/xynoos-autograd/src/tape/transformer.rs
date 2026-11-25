@@ -205,11 +205,21 @@ mod tests {
     use crate::reference::Kernel;
     use crate::tape::Op;
 
-    const INPUT: [u32; 32] = [3; 32];
+    const fn fixture_tokens(offset: u32) -> [u32; 32] {
+        let mut tokens = [0; 32];
+        let mut index = 0;
+        while index < tokens.len() {
+            let token = index as u32 + offset;
+            tokens[index] = if token == 17 { 3 } else { token };
+            index += 1;
+        }
+        tokens
+    }
+
     const BATCH: ReferenceBatch<'_> = ReferenceBatch {
         shape: [1, 32],
-        input: &INPUT,
-        target: &INPUT,
+        input: &fixture_tokens(0),
+        target: &fixture_tokens(1),
         valid: None,
         loss: None,
     };
@@ -247,14 +257,89 @@ mod tests {
         println!("TASK005-R scoped low-level inventory and batch failures before recording");
     }
 
+    fn explicit_weight(entry: usize, rank: usize, i: usize) -> f32 {
+        if rank == 1 {
+            1.0 + (((i + entry) % 9) as f32 - 4.0) / 32.0
+        } else {
+            let n = ((i * 67 + i / 11 * 19 + entry * 43) % 257) as f64 - 128.0;
+            let divisor = if entry == 0 { 2048.0 } else { 768.0 };
+            (n / divisor) as f32
+        }
+    }
+
+    fn verify_tied_paths(reverse: &ReferenceTransformerBackward<'_>, logits: ValueId) {
+        let tape = &reverse.0;
+        let reference = tape.reference().unwrap();
+        let kernels = &reference.nodes.entries;
+        assert!(matches!(tape.nodes.entries[1].op, Op::Reference(0)));
+        let value_id = |index| ValueId {
+            index,
+            owner: tape.owner,
+        };
+        let shared = tape.gradient(value_id(0)).unwrap().unwrap();
+        let gather = tape.gradient(value_id(1)).unwrap().unwrap();
+        let projection = tape.gradient(logits).unwrap().unwrap();
+        let mut lookup = vec![0.0; shared.numel()];
+        let mut output = vec![0.0; shared.numel()];
+        for (record, side, gradient, destination) in [
+            (&kernels[0], 0, gather, &mut lookup),
+            (&kernels[kernels.len() - 2], 1, projection, &mut output),
+        ] {
+            reference
+                .reverse(
+                    &tape.parameters.budget,
+                    record,
+                    &tape.nodes.entries,
+                    side,
+                    gradient,
+                    destination,
+                )
+                .unwrap();
+        }
+        let fixture =
+            include_str!("../../../xynoos-transformer/tests/fixtures/candidate-tied-paths.txt");
+        let mut max_abs = 0_f64;
+        let mut max_rel = 0_f64;
+        let mut compared = 0;
+        for line in fixture.lines().skip(1) {
+            let mut fields = line.split_whitespace();
+            let index: usize = fields.next().unwrap().parse().unwrap();
+            for (observed, hex) in [
+                lookup[index],
+                output[index],
+                f64::from(shared.data()[index]),
+            ]
+            .into_iter()
+            .zip(fields)
+            {
+                let expected = f64::from(f32::from_bits(
+                    u32::from_str_radix(hex, 16).unwrap().swap_bytes(),
+                ));
+                let error = (observed - expected).abs();
+                assert!(
+                    error <= 2e-5 + 2e-5 * expected.abs(),
+                    "tied E index {index}: {observed} vs {expected}"
+                );
+                max_abs = max_abs.max(error);
+                if expected != 0.0 {
+                    max_rel = max_rel.max(error / expected.abs());
+                }
+                compared += 1;
+            }
+            assert_eq!((lookup[index] + output[index]) as f32, shared.data()[index]);
+        }
+        assert_eq!(compared, 18);
+        println!("TASK005-R native E path test: n=18 max_abs={max_abs:.9e} max_rel_nonzero={max_rel:.9e}");
+    }
+
     #[test]
     #[ignore = "bounded hosted candidate transaction and fault-injection controls"]
     fn candidate_failures_release_tape_and_preserve_transactions() {
         let policy = CandidateReferenceExperimentPolicy;
         let mut set = ParameterSet::with_candidate_reference_inventory(Default::default()).unwrap();
-        for shape in CandidateReferenceExperimentPolicy::inventory_shapes() {
-            let weight = if shape.len() == 1 { 1.0 } else { 0.01 };
-            set.insert_generated(shape, |_| Ok(weight)).unwrap();
+        for (entry, shape) in CandidateReferenceExperimentPolicy::inventory_shapes().enumerate() {
+            set.insert_generated(shape, |i| Ok(explicit_weight(entry, shape.len(), i)))
+                .unwrap();
         }
         let observe = set.budget.observe_charged_bytes();
         let base = observe();
@@ -290,7 +375,9 @@ mod tests {
 
         let evaluation =
             ReferenceTransformerEvaluation::record_candidate(&set, BATCH, policy).unwrap();
+        let logits = evaluation.logits;
         let reverse = evaluation.backward().unwrap();
+        verify_tied_paths(&reverse, logits);
         set.budget.fail_allocation_after(0);
         assert_eq!(
             reverse.into_gradients().unwrap_err(),
@@ -327,11 +414,14 @@ mod tests {
         );
         assert_eq!(observe(), committed);
         assert_eq!(set.revision(), revision);
-        for (&id, original) in ids.iter().zip(&initial_gradients) {
+        for (entry, (&id, original)) in ids.iter().zip(&initial_gradients).enumerate() {
             assert_eq!(set.gradient(id).unwrap().unwrap().data(), original);
             let value = set.value(id).unwrap();
-            let expected = if value.rank() == 1 { 1.0 } else { 0.01 };
-            assert!(value.data().iter().all(|&v| v == expected));
+            assert!(value
+                .data()
+                .iter()
+                .enumerate()
+                .all(|(i, &v)| v == explicit_weight(entry, value.rank(), i)));
         }
 
         let stale = evaluate(&set);

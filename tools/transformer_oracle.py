@@ -516,13 +516,24 @@ def generate_candidate():
                                                  if record["name"] == "embedding"
                                                  else record["indexes"][1:2])]
 
-    return dict(schema_version=1, architecture_version=1, config=config,
+    doc = dict(schema_version=1, architecture_version=1, config=config,
                 seed=f"0x{SEED:016x}", batch=batch_original,
                 logits=bits(logits), loss=bits(loss)[0], parameters=records,
                 finite_differences=fd, embedding=tied_record(grad["embedding"], paths),
                 repeated=dict(batch=batch_repeated, loss=bits(repeated_loss)[0],
                               embedding=tied_record(repeated_grad["embedding"], repeated_paths)))
-
+    # A distinct explicit-parameter evaluation lets the autograd unit test
+    # exercise each native VJP edge before transferring the combined adjoint.
+    _, _, explicit_grad, explicit_paths = evaluate(config, explicit(config), batch_repeated)
+    indexes = records[0]["indexes"]
+    assert all(explicit_paths[0][i] != 0 and explicit_paths[1][i] != 0 for i in indexes[:2])
+    path_records = ["# index lookup output combined, IEEE binary32 little-endian hex"]
+    for index in indexes:
+        entries = [path[index] for path in explicit_paths]
+        combined = explicit_grad["embedding"][index]
+        assert f32(entries[0] + entries[1]) == combined
+        path_records.append(" ".join([str(index), *bits([*entries, combined])]))
+    return doc, ("\n".join(path_records) + "\n").encode("utf-8")
 
 
 def main():
@@ -531,7 +542,9 @@ def main():
     parser.add_argument("--candidate", action="store_true", help="verify the full Gate C fixture")
     args = parser.parse_args()
     if args.candidate:
-        document("candidate.json", generate_candidate(), args.check)
+        candidate, paths = generate_candidate()
+        document("candidate.json", candidate, args.check)
+        frozen_payload("candidate-tied-paths.txt", paths, args.check)
         return
     reference = generate()
     parameters = reference.pop("parameters")
@@ -545,8 +558,12 @@ def main():
 
 
 def document(filename, obj, check):
-    path = FIXTURES / filename
     payload = (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    frozen_payload(filename, payload, check)
+
+
+def frozen_payload(filename, payload, check):
+    path = FIXTURES / filename
     print(f"Transformer {filename}: {len(payload)} bytes, SHA-256 {hashlib.sha256(payload).hexdigest()}")
     if check:
         if payload != path.read_bytes():

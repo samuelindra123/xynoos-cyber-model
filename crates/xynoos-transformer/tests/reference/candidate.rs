@@ -89,6 +89,8 @@ fn finite_differences(model: &Transformer, tok: &Tokenizer, fixture: &Value, bat
     let mut covered = std::collections::BTreeSet::new();
     for step in [0.001_f64, 0.003] {
         let mut cmp = Comparison::default();
+        let mut worst_relative = None;
+        let mut zero_differences = 0;
         for sample in fixture["finite_differences"].as_array().unwrap() {
             let name = sample["name"].as_str().unwrap();
             let entry = records
@@ -133,14 +135,23 @@ fn finite_differences(model: &Transformer, tok: &Tokenizer, fixture: &Value, bat
                 "{name} {index}: {expected} vs {fd}"
             );
             cmp.abs = cmp.abs.max(error);
-            if fd != 0. {
-                cmp.rel = cmp.rel.max(error / fd.abs());
+            if fd == 0.0 {
+                zero_differences += 1;
+            } else {
+                let relative = error / fd.abs();
+                if relative > cmp.rel {
+                    cmp.rel = relative;
+                    worst_relative = Some((name, index, expected, fd));
+                }
             }
             cmp.count += 1;
             covered.insert(name);
         }
         assert_eq!(cmp.count, 12);
         cmp.report(&format!("candidate FD h={step}"));
+        println!(
+            "TASK005-R FD h={step} zero_differences={zero_differences} worst_relative={worst_relative:?}"
+        );
     }
     println!("TASK005-R candidate FD tensors {covered:?}");
 }
@@ -204,6 +215,7 @@ fn full_candidate_b1_t32() {
     let transfer = start.elapsed();
     let transfer_peak = model.parameters().peak_accounted_bytes();
     let transferred = model.parameters().accounted_bytes();
+    assert_eq!(transferred, 7_333_280);
     assert_eq!(metrics.values, 198);
     assert_eq!(metrics.operations, 124);
     assert_eq!(metrics.backward_work, 152_581_015);
@@ -239,7 +251,7 @@ fn full_candidate_b1_t32() {
             analytic.compare(grad.data()[i], wanted, 2e-5, 2e-5);
         }
         summary(grad.data(), &record["summary"], &mut aggregates);
-        fingerprints.push((weight_hash, checksum(grad.data())));
+        fingerprints.push((weight_hash, checksum(grad.data()), grad.data().as_ptr()));
     }
     assert_eq!(gradient_cells, 914_400);
     assert_eq!(analytic.count, 225);
@@ -254,7 +266,7 @@ fn full_candidate_b1_t32() {
     let accumulated = model.parameters().accounted_bytes();
     assert_eq!(accumulation_work, 914_548);
     assert_eq!(model.parameters().revision(), revision);
-    for ((_, id), (weight, gradient)) in model.inventory().zip(&fingerprints) {
+    for ((_, id), (weight, gradient, original_storage)) in model.inventory().zip(&fingerprints) {
         assert_eq!(
             checksum(model.parameters().value(id).unwrap().data()),
             *weight
@@ -263,6 +275,16 @@ fn full_candidate_b1_t32() {
             checksum(model.parameters().gradient(id).unwrap().unwrap().data()),
             *gradient
         );
+        assert_eq!(
+            model
+                .parameters()
+                .gradient(id)
+                .unwrap()
+                .unwrap()
+                .data()
+                .as_ptr(),
+            *original_storage
+        );
     }
     assert_eq!(
         accumulated - base,
@@ -270,6 +292,7 @@ fn full_candidate_b1_t32() {
     );
     assert!(transferred > accumulated && transferred < forward_live);
 
+    let original_vm_hwm = rss_kib();
     let repeated = batch(&fixture["repeated"]["batch"]);
     assert_eq!(repeated.input.iter().filter(|&&id| id == 3).count(), 2);
     let other = Transformer::new(CONFIG, &tok, SEED, Default::default()).unwrap();
@@ -298,7 +321,7 @@ fn full_candidate_b1_t32() {
     assert_eq!(cleaned, other_base);
     assert_eq!(model.parameters().revision(), revision);
     assert_eq!(model.parameters().accounted_bytes(), accumulated);
-    for ((_, id), (weight, gradient)) in model.inventory().zip(&fingerprints) {
+    for ((_, id), (weight, gradient, _)) in model.inventory().zip(&fingerprints) {
         assert_eq!(
             checksum(model.parameters().value(id).unwrap().data()),
             *weight
@@ -309,7 +332,7 @@ fn full_candidate_b1_t32() {
         );
     }
     println!(
-        "TASK005-R candidate P={gradient_cells} entries=74 loss={loss:.9} revision={revision} finite_cells=914400 violations=0 nonfinite=0 foreign=WrongParameterSet base={base} forward_live={forward_live} forward_peak={forward_peak} backward_peak={backward_peak} transfer_peak={transfer_peak} transferred={transferred} accumulated={accumulated} cleaned={cleaned} VmHWM_KiB={:?} init_work={} backward_requested={} accumulation_work={accumulation_work} {metrics:?}",
+        "TASK005-R candidate P={gradient_cells} entries=74 loss={loss:.9} revision={revision} finite_cells=914400 violations=0 nonfinite=0 foreign=WrongParameterSet base={base} forward_live={forward_live} forward_peak={forward_peak} backward_peak={backward_peak} transfer_peak={transfer_peak} transferred={transferred} accumulated={accumulated} cleaned={cleaned} original_VmHWM_KiB={original_vm_hwm:?} VmHWM_KiB={:?} init_work={} backward_requested={} accumulation_work={accumulation_work} {metrics:?}",
         rss_kib(),
         model.initialization_work(),
         metrics.backward_work,
@@ -325,8 +348,9 @@ fn full_candidate_b1_t32() {
     let start = Instant::now();
     finite_differences(&model, &tok, &fixture, &original);
     println!(
-        "TASK005-R candidate FD elapsed_ms={:.3}",
-        start.elapsed().as_secs_f64() * 1000.
+        "TASK005-R candidate FD elapsed_ms={:.3} final_VmHWM_KiB={:?}",
+        start.elapsed().as_secs_f64() * 1000.,
+        rss_kib()
     );
 }
 
@@ -504,7 +528,7 @@ fn malformed_mask_and_target_shift_combinations() {
 
 #[test]
 #[ignore = "bounded hosted release check of tightened work limit and policy scope"]
-fn candidate_policy_preserves_tighter_work_and_default_entry() {
+fn candidate_policy_preserves_tighter_work_limit() {
     let work = ResourceLimits::MAX_WORK - 1;
     let limits = ResourceLimits::new(
         ResourceLimits::MAX_BYTES,

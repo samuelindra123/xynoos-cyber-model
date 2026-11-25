@@ -198,7 +198,9 @@ jobs:
       - name: Verify scoped Gate C backward, finite differences and transactions
         timeout-minutes: 3
         run: |
-          cargo test -p xynoos-transformer --locked --offline --release --test reference candidate:: -- --ignored --nocapture --test-threads=1
+          for test in full_candidate_b1_t32 candidate_policy_preserves_tighter_work_limit; do
+            cargo test -p xynoos-transformer --locked --offline --release --test reference "candidate::$test" -- --ignored --exact --nocapture
+          done
           cargo test -p xynoos-autograd --locked --offline --release --lib tape::transformer::tests::candidate_failures_release_tape_and_preserve_transactions -- --ignored --exact --nocapture
 
       - name: Build Rust documentation
