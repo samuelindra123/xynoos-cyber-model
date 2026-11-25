@@ -69,7 +69,8 @@ impl<'p> Tape<'p> {
     }
 
     pub fn parameter(&mut self, id: ParameterId) -> Result<ValueId, Error> {
-        self.record_leaf(Op::Parameter(id), self.parameters.value(id)?)
+        let (index, source) = self.parameters.snapshot_source(id)?;
+        self.record_leaf(Op::Parameter(index), source)
     }
 
     pub fn add(&mut self, a: ValueId, b: ValueId) -> Result<ValueId, Error> {
@@ -175,8 +176,11 @@ impl<'p> Tape<'p> {
             .check_work(Pass::GradientTransfer, work)?;
         let mut batch = self.parameters.batch()?;
         for (node, gradient) in self.nodes.entries.iter().zip(&mut adjoints.entries).rev() {
-            if let (Op::Parameter(id), Some(gradient)) = (node.op, gradient.take()) {
-                let slot = &mut batch.gradients.entries[id.index];
+            if let Op::Parameter(index) = node.op {
+                let Some(gradient) = gradient.take() else {
+                    continue;
+                };
+                let slot = &mut batch.gradients.entries[index];
                 if let Some(existing) = slot {
                     same_shape(existing.tensor.shape(), gradient.tensor.shape())?;
                     for (i, &contribution) in gradient.tensor.data().iter().enumerate() {

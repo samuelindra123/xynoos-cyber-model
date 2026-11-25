@@ -8,7 +8,7 @@ use crate::{identity, AutogradError as Error, Pass, ResourceLimits, Stage};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParameterId {
     owner: u64,
-    pub(crate) index: usize,
+    index: usize,
 }
 
 /// Exclusive ownership of parameter values and their persistent gradients.
@@ -100,7 +100,7 @@ impl ParameterSet {
     }
 
     pub fn value(&self, id: ParameterId) -> Result<&Tensor, Error> {
-        Ok(&self.lookup(id)?.value.tensor)
+        Ok(self.snapshot_source(id)?.1)
     }
 
     pub fn gradient(&self, id: ParameterId) -> Result<Option<&Tensor>, Error> {
@@ -202,6 +202,10 @@ impl ParameterSet {
             revision: self.revision,
             gradients,
         })
+    }
+
+    pub(crate) fn snapshot_source(&self, id: ParameterId) -> Result<(usize, &Tensor), Error> {
+        Ok((id.index, &self.lookup(id)?.value.tensor))
     }
 
     fn lookup(&self, id: ParameterId) -> Result<&Parameter, Error> {

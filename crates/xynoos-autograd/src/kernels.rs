@@ -3,12 +3,12 @@ use xynoos_tensor::{Tensor, TensorError, TensorLimits};
 use crate::budget::{add, mul};
 use crate::error::same_shape;
 use crate::tape::Node;
-use crate::{AutogradError as Error, ParameterId};
+use crate::AutogradError as Error;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Op {
     Input,
-    Parameter(ParameterId),
+    Parameter(usize),
     Add(usize, usize),
     Subtract(usize, usize),
     Multiply(usize, usize),

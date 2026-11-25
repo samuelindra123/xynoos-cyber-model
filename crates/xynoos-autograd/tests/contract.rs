@@ -661,3 +661,31 @@ fn aggregate_memory_charges_the_retained_spare_capacity_of_adopted_tensors() {
     parameters.insert(scalar(1.0)).unwrap();
     assert_eq!(parameters.accounted_bytes(), exact);
 }
+
+#[test]
+fn backward_matrix_work_charges_both_reachable_products() {
+    for work in [124, 125] {
+        let mut parameters = ParameterSet::new(ResourceLimits::new(4096, 8, 8, work)).unwrap();
+        let a = parameters.insert(tensor(&[2, 2], &[1.0; 4])).unwrap();
+        let b = parameters.insert(tensor(&[2, 2], &[1.0; 4])).unwrap();
+        let mut tape = Tape::new(&parameters).unwrap();
+        let a = tape.parameter(a).unwrap();
+        let b = tape.parameter(b).unwrap();
+        let product = tape.matmul(a, b).unwrap();
+        let root = tape.sum(product).unwrap();
+        if work == 124 {
+            assert_eq!(
+                tape.backward(root),
+                Err(Error::WorkLimit {
+                    pass: Pass::Backward,
+                    requested: 125,
+                    limit: work
+                })
+            );
+        } else {
+            tape.backward(root).unwrap();
+            assert_eq!(gradient(&tape, a), [2.0; 4]);
+            assert_eq!(gradient(&tape, b), [2.0; 4]);
+        }
+    }
+}
