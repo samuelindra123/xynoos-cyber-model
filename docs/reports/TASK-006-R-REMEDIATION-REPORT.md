@@ -12,8 +12,9 @@ This report records focused changes after TASK 006-C’s conditional pass. It do
 | Canonical checkout | One physical checkout at the repository’s canonical working directory |
 | TASK 006-C parent | `231d47d2d95f52770fa20f4da93a91be762178d0` |
 | Remediation branch | `feat/task-006-r-runtime-remediation` |
-| Draft remediation PR | To `audit/task-006-c-native-training-verification`; exact link and head recorded after push |
-| Final head / Foundation CI job | Recorded after exact-head hosted CI completes |
+| Draft remediation PR | [#21](https://github.com/samuelindra123/xynoos-cyber-model/pull/21), targets `audit/task-006-c-native-training-verification` |
+| Implementation head | `2b7961ab25be6f81d1ad137433bf4766d32a9ea6` (one commit from the pinned TASK 006-C parent) |
+| Exact-head Foundation CI | [Run 45753759238](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45753759238), job `139687426641`: success on the implementation head; the documentation evidence follow-up is covered by the latest PR checks. |
 
 ## Remediated acceptance findings
 
@@ -57,4 +58,4 @@ TASK 006-C’s 138 active checks remain; twelve remediation checks bring debug a
 
 The native process runtime and local Linux detached mode are ready for independent re-verification. The actual CPU workflow is manual-only and was not dispatched. No TASK 006-D run or external compute was used. The 006-D proposal now marks multi-batch validation, a baseline/test evaluation path, and owner-approved private checkpoint persistence as pre-dispatch requirements: the existing single 32-token validation batch is not adequate for a rate-selection claim, and the executable does not access the test split. No cybersecurity capability or broad text generalization is claimed.
 
-The exact final commit, PR, and Foundation CI job are added to this report after push and hosted verification.
+The linked Foundation run checked out the exact implementation head, passed the debug/release check-count gate at 150 each, passed the full numerical and fixture oracles, and explicitly executed all five hosted-only candidate/resource checks. The final handoff reports the latest pushed head and its exact-head CI result. Independent TASK 006-C2 review remains necessary before owner acceptance.
