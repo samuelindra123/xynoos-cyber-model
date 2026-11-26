@@ -205,8 +205,8 @@ jobs:
         run: |
           for profile in debug release; do
             total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
-            test "$total" -eq 185
-            printf '%s matches 138 preserved checks, 12 prior TASK 006-R checks, 15 R2 checks, 5 C3 audit checks and 15 D1 evaluation, corpus, baseline, answer-bearing evaluation and trainer-integration checks\n' "$profile"
+            test "$total" -eq 187
+            printf '%s matches 138 preserved checks, 12 prior TASK 006-R checks, 15 R2 checks, 5 C3 audit checks and 17 D1 evaluation, corpus, baseline, answer-bearing evaluation and trainer-integration checks\n' "$profile"
           done
 
       - name: Measure isolated Transformer reference passes
