@@ -1136,7 +1136,7 @@ impl<S: BatchSource> Trainer<S> {
 }
 
 fn count_batch(batch: &Batch) -> Result<(u64, u64)> {
-    if batch.shape() != [1, 32] {
+    if !matches!(batch.shape(), [1, 32] | [2, 16]) {
         return Err(TrainingError::InvalidConfiguration);
     }
     let positions = batch.input().len();
@@ -1686,7 +1686,24 @@ mod tests {
                 Batch::from_parts(1, 16, &inputs, &targets, Some(&valid), Some(&mask)).unwrap(),
             );
         }
+        assert_eq!(batches.len() % 2, 0, "Objective A split must pair evenly");
         batches
+            .chunks_exact(2)
+            .map(|pair| {
+                let mut inputs = [SpecialToken::Pad.id(); 32];
+                let mut targets = [SpecialToken::Pad.id(); 32];
+                let mut valid = [0_u8; 32];
+                let mut mask = [0_u8; 32];
+                for (row, batch) in pair.iter().enumerate() {
+                    let offset = row * 16;
+                    inputs[offset..offset + 16].copy_from_slice(batch.input());
+                    targets[offset..offset + 16].copy_from_slice(batch.target());
+                    valid[offset..offset + 16].copy_from_slice(batch.valid_mask().unwrap());
+                    mask[offset..offset + 16].copy_from_slice(batch.loss_mask().unwrap());
+                }
+                Batch::from_parts(2, 16, &inputs, &targets, Some(&valid), Some(&mask)).unwrap()
+            })
+            .collect()
     }
 
     struct FailWriter {
@@ -1827,6 +1844,14 @@ mod tests {
             Batch::from_parts(1, 32, &input, &target, Some(&valid), Some(&invalid_loss)).unwrap();
         assert_eq!(
             count_batch(&invalid),
+            Err(TrainingError::InvalidConfiguration)
+        );
+
+        let paired = Batch::from_parts(2, 16, &input, &target, Some(&valid), Some(&loss)).unwrap();
+        assert_eq!(count_batch(&paired).unwrap(), (4, 2));
+        let unsupported = Batch::from_parts(4, 16, &input, &target, None, None).unwrap();
+        assert_eq!(
+            count_batch(&unsupported),
             Err(TrainingError::InvalidConfiguration)
         );
     }
@@ -2481,8 +2506,8 @@ mod tests {
         data_limits.reader_bytes = memory.reader_buffer_bytes() / 2;
         data_limits.token_buffer_bytes = stream_buffer;
         data_limits.sequence_length = 16;
-        data_limits.batch_size = 1;
-        data_limits.batch_positions = 16;
+        data_limits.batch_size = 2;
+        data_limits.batch_positions = 32;
         let dataset = ManifestValidator::open(&dataset_root, data_limits).unwrap();
         assert_eq!(dataset.records().len(), 60);
         assert_eq!(audit["dataset_id"], dataset.manifest().dataset_id);
@@ -2510,7 +2535,7 @@ mod tests {
             batch: BatchConfig {
                 sequence_length: 16,
                 stride: 16,
-                batch_size: 1,
+                batch_size: 2,
                 tail: Tail::Pad,
                 pad_final_batch: false,
             },
@@ -2549,7 +2574,7 @@ mod tests {
         .unwrap();
         assert_eq!(initial_model.parameter_count(), 914_400);
         let full_limits =
-            crate::EvaluationLimits::new(32, 512, 8_000_000_000, 4 * 1024 * 1024, 16).unwrap();
+            crate::EvaluationLimits::new(32, 512, 8_000_000_000, 4 * 1024 * 1024, 32).unwrap();
         let full_train = crate::evaluate_standard_dataset_split(
             &initial_model,
             &dataset,
@@ -2572,8 +2597,8 @@ mod tests {
             full_limits,
         )
         .unwrap();
-        assert_eq!(full_train.batch_count, 24);
-        assert_eq!(full_validation.batch_count, 18);
+        assert_eq!(full_train.batch_count, 12);
+        assert_eq!(full_validation.batch_count, 9);
         assert_eq!(full_train.supervised_tokens, 197);
         assert_eq!(full_validation.supervised_tokens, 199);
         assert!(!full_train.test_access && !full_validation.test_access);
@@ -2581,9 +2606,24 @@ mod tests {
             full_train.model_state_sha256,
             full_validation.model_state_sha256
         );
+        let full_test = crate::evaluate_standard_dataset_split(
+            &initial_model,
+            &dataset,
+            &fitted,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            Split::Test,
+            stream,
+            full_limits,
+        )
+        .unwrap();
+        assert_eq!(full_test.batch_count, 9);
+        assert_eq!(full_test.supervised_tokens, 172);
+        assert!(full_test.test_access && full_test.coverage_complete);
+        assert_eq!(full_train.model_state_sha256, full_test.model_state_sha256);
 
         let answer_limits =
-            crate::EvaluationLimits::new(32, 512, 8_000_000_000, 4 * 1024 * 1024, 16).unwrap();
+            crate::EvaluationLimits::new(32, 512, 8_000_000_000, 4 * 1024 * 1024, 32).unwrap();
         let answer_validation = crate::evaluate_batches(
             &initial_model,
             fitted.model(),
@@ -2620,10 +2660,10 @@ mod tests {
             answer_limits,
         )
         .unwrap();
-        assert_eq!(answer_validation.batch_count, 18);
+        assert_eq!(answer_validation.batch_count, 9);
         assert_eq!(answer_validation.supervised_tokens, 28);
         assert!(answer_validation.coverage_complete && !answer_validation.test_access);
-        assert_eq!(answer_test_baseline.batch_count, 18);
+        assert_eq!(answer_test_baseline.batch_count, 9);
         assert_eq!(answer_test_baseline.supervised_tokens, 27);
         assert!(answer_test_baseline.coverage_complete && answer_test_baseline.test_access);
         assert_eq!(
@@ -2639,6 +2679,10 @@ mod tests {
             full_validation.to_json()
         );
         println!(
+            "TASK006_D1_OBJECTIVE_A_V3_BASELINE locked_test={}",
+            full_test.to_json()
+        );
+        println!(
             "TASK006_D1_OBJECTIVE_A_V3_ANSWER_BASELINE validation={}",
             answer_validation.to_json()
         );
@@ -2649,20 +2693,20 @@ mod tests {
 
         let limits = RunLimits::new(
             1,
-            24,
+            12,
             768,
             768,
             8_000_000_000,
             ResourceLimits::MAX_BYTES,
             Duration::from_secs(120),
             Duration::from_secs(90),
+            6,
             12,
-            24,
         )
         .unwrap();
         let config = TrainingConfig::new(
             AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
-            LinearWarmupDecay::new(24, 0, 1e-3, 1e-4).unwrap(),
+            LinearWarmupDecay::new(12, 0, 1e-3, 1e-4).unwrap(),
             limits,
             memory,
             ResourceLimits::default(),
@@ -2671,7 +2715,7 @@ mod tests {
         )
         .unwrap()
         .with_validation_limits(
-            crate::EvaluationLimits::new(18, 256, 8_000_000_000, 4 * 1024 * 1024, 16).unwrap(),
+            crate::EvaluationLimits::new(9, 256, 8_000_000_000, 4 * 1024 * 1024, 32).unwrap(),
         )
         .unwrap();
         let train = dataset
@@ -2718,12 +2762,12 @@ mod tests {
             .map(|value| value.to_bits())
             .collect();
         assert_eq!(training.stop_reason, StopReason::ScheduleComplete);
-        assert_eq!(training.counters.completed_updates, 24);
-        assert_eq!(training.counters.committed_cursor, 24);
+        assert_eq!(training.counters.completed_updates, 12);
+        assert_eq!(training.counters.committed_cursor, 12);
         assert_eq!(training.counters.committed_consumed_tokens, 197);
         assert_eq!(training.counters.committed_supervised_tokens, 197);
         assert_eq!(training.counters.validation_supervised_tokens, 28);
-        assert_eq!(trainer.optimizer().step_count(), 24);
+        assert_eq!(trainer.optimizer().step_count(), 12);
         assert_ne!(before, after, "the software control must change parameters");
         let metric_lines = fs::read_to_string(run_root.join("metrics.jsonl")).unwrap();
         let validation_events: Vec<Value> = metric_lines
@@ -2771,6 +2815,7 @@ mod tests {
 
         let measured_work = u128::from(full_train.total_forward_work)
             + u128::from(full_validation.total_forward_work)
+            + u128::from(full_test.total_forward_work)
             + u128::from(answer_validation.total_forward_work)
             + u128::from(answer_test_baseline.total_forward_work)
             + u128::from(training.counters.cumulative_work)

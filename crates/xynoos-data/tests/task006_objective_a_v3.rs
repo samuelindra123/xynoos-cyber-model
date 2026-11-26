@@ -22,7 +22,7 @@ fn stream_config() -> StreamConfig {
         batch: BatchConfig {
             sequence_length: 16,
             stride: 16,
-            batch_size: 1,
+            batch_size: 2,
             tail: Tail::Pad,
             pad_final_batch: false,
         },
@@ -73,9 +73,9 @@ fn manifest_train_only_fit_and_padded_split_streams_are_deterministic() {
         assert_eq!(stream.split(), split);
         let mut batches = 0;
         while let Some(batch) = stream.next_batch().unwrap() {
-            assert_eq!(batch.shape(), [1, 16]);
-            assert_eq!(batch.input().len(), 16);
-            assert_eq!(batch.target().len(), 16);
+            assert_eq!(batch.shape(), [2, 16]);
+            assert_eq!(batch.input().len(), 32);
+            assert_eq!(batch.target().len(), 32);
             assert_eq!(batch.input()[0], SpecialToken::Bos.id());
             let valid = batch.valid_mask().unwrap();
             assert!(valid.iter().any(|&value| value == 0));
@@ -83,10 +83,10 @@ fn manifest_train_only_fit_and_padded_split_streams_are_deterministic() {
             batches += 1;
         }
         let stats = stream.stats();
-        assert_eq!(batches, expected_documents);
+        assert_eq!(batches, expected_documents / 2);
         assert_eq!(stats.documents, expected_documents);
         assert_eq!(stats.samples, expected_documents);
-        assert_eq!(stats.batches, expected_documents);
+        assert_eq!(stats.batches, expected_documents / 2);
         assert_eq!(stats.dropped_tails, 0);
         assert_eq!(stats.padded_tails, expected_documents);
 
