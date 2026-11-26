@@ -106,12 +106,19 @@ At clean source `74831336ae081ee65b3f18071208ed812bd73f66`, the new v3 data
 stream test passed with 24 independently padded `[1, 32]` training batches,
 197 supervised targets, zero dropped tails, and deterministic ordering. The
 focused `objective_a_v3_manifest_runs_two_bounded_trainer_updates` debug test
-also passed (one test, 17.27 seconds): it completed two updates using only the
-train split, recorded validation events, checked finite loss and a parameter
-change, wrote a checkpoint, and verified no test access. This is an isolated
-integration control, not a TASK 006-D experiment or evidence that two updates
-are scientifically sufficient. Full debug/release regression and exact-head
-hosted CI for the updated candidate remain pending.
+passed again at clean source `698541f2273ee511c829c9aa0c559139d37a43c2`
+(one test, 17.47 seconds wall time). It completed two updates using only the
+train split, recorded two one-batch partial validation events, checked finite
+loss and a parameter change, wrote a checkpoint, and verified no test access.
+The runtime reported 19 consumed and supervised train tokens, 18 validation
+tokens, 825,200,872 cumulative work units, 17.2875 seconds active runtime,
+42,439,416 bytes owned-memory peak, 30,682,296 bytes autograd-ledger peak,
+and 37,212,160 bytes process high-water. A linear twelve-fold projection for
+24 such updates is 9,902,410,464 work units, above the 8-billion ceiling; it
+is not a full-workload measurement and does not include the initial baseline
+or full validation coverage. This is an isolated integration control, not a
+TASK 006-D experiment or evidence that two updates are scientifically
+sufficient.
 
 The latest local workspace runs at source `053b2703632921d9869215a2dad664d2f2b41733`
 passed 185 debug and 185 release checks. The 101-observation deterministic
