@@ -31,7 +31,7 @@ The native evaluator used one unchanged model initialized with seed 107. No opti
 | Model | `xynoos-cyber-0.1`, vocab 292, width 96, 8 layers, 4 heads, FFN 256, context 128 |
 | Actual parameter count | 914,400 |
 | Initial model-state SHA-256 | `470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44` |
-| Baseline source revision | `8dcfd06125bff3957fad5122af69a12d5a0aecc6`, clean and attested |
+| Baseline source revision | `053b2703632921d9869215a2dad664d2f2b41733`, clean and attested |
 | Batch layout | `[2, 16]`, deterministic manifest order, BOS/EOS, padded rows |
 | Per-evaluator limits | 32 batches, 512 consumed tokens, 8,000,000,000 forward-work units, 4 MiB source, 32 batch positions |
 | Sum of five baseline evaluator forward-work measurements | 3,124,414,056 |

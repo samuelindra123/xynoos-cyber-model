@@ -66,6 +66,10 @@ confirmed the answer-bearing test and full 182-check workspace suites.
 | `python3 tools/task006_objective_a_v3_audit.py --check` | Independent standard-library audit fixture SHA-256 `591627a107921156b51ca9a54b94caf748db73ac07430ff7ba35f354336dcc9b` |
 | `cargo test -p xynoos-data --locked --offline -- --show-output` | Passed on the v3 candidate; includes semantic-group same-split and cross-split negative controls and deterministic 24/18/18 v3 streams |
 | `cargo test -p xynoos-training objective_a_v3_manifest_unchanged_weight_baseline --locked --offline -- --show-output` | Passed at clean source `8dcfd06125bff3957fad5122af69a12d5a0aecc6`; one test, 91.38 seconds debug; full baseline and answer-bearing validation/test evaluated with unchanged weights |
+| Full debug workspace at clean source `053b2703632921d9869215a2dad664d2f2b41733` | Passed; 185 tests/doctests, 0 failures; training crate unit suite 219.53 seconds, including v3 baseline |
+| Full release workspace at clean source `053b2703632921d9869215a2dad664d2f2b41733` | Passed; 185 tests/doctests, 0 failures; training crate unit suite 25.08 seconds |
+| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | Passed on the exact source diff committed at `053b270` |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --offline` | Passed |
 | `python3 tools/task006_evaluation_oracle.py --check` | Independent token-weighted aggregation fixture verified |
 | `python3 tools/task006_evaluation_audit.py --check` | Split/tokenizer audit SHA-256 `182a4ae677a9ae0545690e48b99dab63ecc94b2ca051ce735eb2eed2abaa62a8` |
 | `python3 tools/tokenizer_data_oracle.py --check` | Task 004 manifest, tokenizer, and split negative controls verified |
@@ -100,3 +104,11 @@ metrics, dataset identities, and limitations are recorded in the
 training harness was rejected by the existing candidate `[1, 32]` batch-shape
 contract before its first update and was removed; it contributes no training
 or learning evidence.
+
+The latest local workspace runs at source `053b2703632921d9869215a2dad664d2f2b41733`
+passed 185 debug and 185 release checks. The 101-observation deterministic
+learning trajectory matched bit-for-bit across profiles with the preserved
+SHA-256 `e50d201a133838fe64158e0dcf94df894efcf17241f1f16e52232a4e75d41c6a`.
+The local environment lacks both Ruby and PyYAML, so YAML parsing was not run
+locally; the exact-head Foundation CI workflow performs that check using its
+pinned runner image.
