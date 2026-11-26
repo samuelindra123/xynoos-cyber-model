@@ -2252,7 +2252,7 @@ mod tests {
     }
 
     #[test]
-    fn objective_a_v2_answer_bearing_baseline_matches_independent_token_spans() {
+    fn objective_a_v2_answer_bearing_baseline_matches_audit_position_fixture() {
         let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
         let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();

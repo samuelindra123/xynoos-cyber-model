@@ -81,3 +81,15 @@ character-trigram similarity threshold. Its public test split and repeated
 templates prevent treating it as an independent broad generalization
 benchmark. See the [v2 dataset review](TASK-006-D1-OBJECTIVE-A-V2-DATASET.md)
 for identities, measured losses, and limitations.
+
+A follow-up unchanged-weight evaluation applies task-index loss masks to the
+BPE target positions intersecting each answer span and checks every mask against
+a separately implemented standard-library position oracle. The baseline
+reports 89 answer-bearing targets for train and 46 each for validation and
+public test; mean losses are 5.695748897, 5.752027055, and 5.743219521. It
+reads the public test only under explicit `test_access` tagging. Eight answer
+starts remain inside merged BPE tokens, so this metric includes prompt bytes
+for those tokens and is not strict answer-only evaluation. This is a
+cross-implementation software check, not independent human review, and no
+post-update answer-bearing improvement has been demonstrated. The training
+stream still uses its ordinary all-token loss masks.

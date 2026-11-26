@@ -3,8 +3,9 @@
 | Evidence identity | Value |
 |---|---|
 | Historical D1 implementation revision | `da99cba3016b7fe564c42e65d8d2babe44b3b98f` |
-| Latest D1 Objective A v2 candidate tested | `4a83c68a199d8844e2d01038bd5d94d8dc377959` |
-| Working tree | Clean for the latest candidate baseline, C3 audit target, and exact-head hosted workflow. |
+| Previous full Objective A v2 baseline source | `4a83c68a199d8844e2d01038bd5d94d8dc377959` |
+| Answer-bearing baseline test source | `1673234f12694880eb4355e2b8695c5447fd7049` |
+| Working tree | Clean for the answer-bearing debug and release tests at the source revision above. |
 
 ## Executed Rust checks
 
@@ -12,6 +13,10 @@
 |---|---|
 | `cargo test --workspace --locked --offline -- --show-output` | Passed, 178 tests/doctests, 0 failures |
 | `cargo test --workspace --release --locked --offline -- --show-output` | Passed, 178 tests/doctests, 0 failures |
+| `cargo test -p xynoos-training objective_a_v2_answer_bearing_baseline_matches_independent_token_spans --locked --offline -- --show-output` | Passed at `1673234`, 1 test; 48 answer-span masks matched the audit-position fixture; 74.36 s debug test time (test has since been renamed) |
+| `cargo test -p xynoos-training --release objective_a_v2_answer_bearing_baseline_matches_independent_token_spans --locked --offline -- --show-output` | Passed at `1673234`, 1 test; 10.06 s test time after compilation (test has since been renamed) |
+| `cargo check -p xynoos-training --tests --locked --offline` | Passed at the implementation candidate before its clean-source run |
+| `python3 tools/task006_objective_a_v2_audit.py --check` | Passed; answer-position fixture SHA-256 `1a7b328bf1311c59bc21c1e21d0eaed1e0c8340b886742c204fdb9180148aa5c` |
 | `cargo test -p xynoos-training --locked --offline --test cli_process detached_process_survives_controller_exit_supports_stop_status_resume_and_crash_recovery -- --exact --show-output` | Passed; stop, status, resume, and crash-recovery lifecycle retained |
 | `cargo fmt --all -- --check` | Passed |
 | `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | Passed |
@@ -19,13 +24,21 @@
 | `python3 tools/check_repository.py` | Passed at the historical revision; 194 tracked files checked |
 
 The historical full-workspace local runs above covered 178 tests/doctests at
-`da99cba`. The latest candidate's exact-hosted Foundation CI run
+`da99cba`. The previous v2 candidate's exact-hosted Foundation CI run
 `45823059589` checked out `4a83c68a199d8844e2d01038bd5d94d8dc377959` and
 passed all 33 steps, including formatting, Clippy, all independent oracles,
 debug and release suites at 181 counted checks each, resource checks, and Rust
 documentation. The five C3 auditor-authored tests also passed locally in both
 profiles on that clean candidate revision. A local rerun of
 `python3 tools/check_repository.py` on `4a83c68` checked 255 tracked files.
+
+The answer-bearing follow-up is an additional unchanged-weight baseline on the
+same manifest-backed corpus, not a training experiment. Its masks were
+cross-checked against a separately implemented Python standard-library audit;
+this code-level comparison does not replace external human review. At source
+`1673234`, it reports 89/46/46 answer-bearing targets for train/validation/test
+and finite loss on every split. The test split is still public and accessed
+only by the explicitly tagged baseline evaluator.
 
 The historical full-workspace profiles included the 5 auditor-authored C3
 process tests, R2 lock and sidecar tests, 6 evaluation tests, the initial
@@ -34,7 +47,8 @@ run before the coverage fix failed the detached lifecycle stop assertion; it
 exposed the evaluator's hard error at the batch cap. The final historical
 debug and release runs were executed after the fix and both passed. The latest
 candidate's 181-check hosted runs include its additional v2 dataset and native
-trainer plumbing controls.
+trainer plumbing controls. The answer-bearing test adds one expected workspace
+check; the next exact-head hosted full suite must confirm 182.
 
 ## Independent fixtures and controls
 
