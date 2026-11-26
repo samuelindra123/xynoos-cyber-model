@@ -5,7 +5,7 @@ import re
 import subprocess
 
 MAX_FILE_BYTES = 256 * 1024
-OBJECTIVE_A_V2_FILES = {
+OBJECTIVE_A_MANIFEST_FILES = {
     "datasets/task006-objective-a-v2/manifest.json",
     "datasets/task006-objective-a-v2/sources.jsonl",
     "datasets/task006-objective-a-v2/documents.jsonl",
@@ -13,6 +13,15 @@ OBJECTIVE_A_V2_FILES = {
     "datasets/task006-objective-a-v2/tokenizer.tsv",
     "datasets/task006-objective-a-v2/task-index.json",
 }
+OBJECTIVE_A_V3_FILES = {
+    "datasets/task006-objective-a-v3/manifest.json",
+    "datasets/task006-objective-a-v3/sources.jsonl",
+    "datasets/task006-objective-a-v3/documents.jsonl",
+    "datasets/task006-objective-a-v3/tokenizer-fit.jsonl",
+    "datasets/task006-objective-a-v3/tokenizer.tsv",
+    "datasets/task006-objective-a-v3/task-index.json",
+}
+OBJECTIVE_A_DATA_FILES = OBJECTIVE_A_MANIFEST_FILES | OBJECTIVE_A_V3_FILES
 ARTIFACT_EXTENSIONS = {
     ".a", ".bin", ".ckpt", ".csv", ".dylib", ".exe", ".gguf", ".log",
     ".model", ".npy", ".npz", ".o", ".parquet", ".prof", ".pt",
@@ -35,8 +44,8 @@ PRIVATE_PATTERNS = {
 
 def violations(path):
     value = path.as_posix()
-    allowed_dataset = value in OBJECTIVE_A_V2_FILES or re.fullmatch(
-        r"datasets/task006-objective-a-v2/payload/oa2-[0-9]{3}\.txt", value
+    allowed_dataset = value in OBJECTIVE_A_DATA_FILES or re.fullmatch(
+        r"datasets/task006-objective-a-v[23]/payload/oa[23]-[0-9]{3}\.txt", value
     )
     if (
         any(part in {"target", "__pycache__", ".venv"} for part in path.parts)

@@ -18,7 +18,7 @@ use crate::{
 
 const IDENTITY_TAG: &[u8] = b"XYNOOS-DATASET-V1\0";
 
-/// Version 1 uses the exact payload SHA-256 hex as the duplicate-group ID.
+/// Assign a deterministic split using the version-1 SHA-256 group algorithm.
 pub fn assign_split(seed: &str, group_id: &str) -> Result<Split> {
     if !identifier(seed) || !digest_text(group_id) {
         return Err(InvalidSplit);
@@ -130,6 +130,7 @@ impl ManifestValidator {
         validate_order_and_split(
             &records,
             &manifest.split_seed,
+            &manifest.group_key_policy,
             limits.metadata_bytes - owned,
         )?;
         for row in &records {
@@ -207,7 +208,12 @@ fn load_records<T: serde::de::DeserializeOwned + Serialize>(
     Ok(output)
 }
 
-fn validate_order_and_split(rows: &[DocumentRecord], seed: &str, available: usize) -> Result<()> {
+fn validate_order_and_split(
+    rows: &[DocumentRecord],
+    seed: &str,
+    group_key_policy: &str,
+    available: usize,
+) -> Result<()> {
     check(
         mul(rows.len(), size_of::<usize>())?,
         available,
@@ -232,6 +238,13 @@ fn validate_order_and_split(rows: &[DocumentRecord], seed: &str, available: usiz
             return Err(DuplicateLeakage);
         }
     }
+    order.sort_unstable_by(|&a, &b| rows[a].duplicate_group_id.cmp(&rows[b].duplicate_group_id));
+    for pair in order.windows(2) {
+        let (a, b) = (&rows[pair[0]], &rows[pair[1]]);
+        if a.duplicate_group_id == b.duplicate_group_id && a.split != b.split {
+            return Err(DuplicateLeakage);
+        }
+    }
     order.sort_unstable_by(|&a, &b| rows[a].payload_path.cmp(&rows[b].payload_path));
     for pair in order.windows(2) {
         let (a, b) = (&rows[pair[0]], &rows[pair[1]]);
@@ -240,7 +253,10 @@ fn validate_order_and_split(rows: &[DocumentRecord], seed: &str, available: usiz
         }
     }
     for row in rows {
-        if assign_split(seed, &row.content_sha256)? != row.split {
+        if group_key_policy == "content-sha256" && row.duplicate_group_id != row.content_sha256 {
+            return Err(InvalidSplit);
+        }
+        if assign_split(seed, &row.duplicate_group_id)? != row.split {
             return Err(InvalidSplit);
         }
     }
@@ -656,6 +672,32 @@ fn matches_digest(text: &str, digest: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{CleaningStatus, Domain, TokenizerId};
+
+    fn grouped_record(
+        document_id: &str,
+        payload_path: &str,
+        content_sha256: &str,
+        duplicate_group_id: &str,
+        split: Split,
+    ) -> DocumentRecord {
+        DocumentRecord {
+            schema_version: 1,
+            document_id: document_id.to_owned(),
+            source_id: "source".to_owned(),
+            source_revision: "1".to_owned(),
+            payload_path: payload_path.to_owned(),
+            content_sha256: content_sha256.to_owned(),
+            byte_length: 1,
+            encoding: "utf-8".to_owned(),
+            domain_labels: vec![Domain::Programming],
+            split,
+            cleaning_status: CleaningStatus::Original,
+            transformation_ids: Vec::new(),
+            tokenizer_compatibility: TokenizerId::Unassigned,
+            duplicate_group_id: duplicate_group_id.to_owned(),
+        }
+    }
 
     #[test]
     fn short_reads_eof_and_mid_record_io_are_distinct() {
@@ -686,5 +728,53 @@ mod tests {
         assert_eq!(broken.next_line(), Err(Io(io::ErrorKind::PermissionDenied)));
         let mut exceeded = Lines::new(&b" {}\n"[..], 4, limits).unwrap();
         assert_eq!(exceeded.next_line(), Err(RecordLimit));
+    }
+
+    #[test]
+    fn semantic_input_groups_keep_prompt_variants_in_one_split() {
+        let seed = "objective-a-group-test";
+        let group = "a".repeat(64);
+        let split = assign_split(seed, &group).unwrap();
+        let first = grouped_record("first", "payload/first.txt", &"1".repeat(64), &group, split);
+        let second = grouped_record(
+            "second",
+            "payload/second.txt",
+            &"2".repeat(64),
+            &group,
+            split,
+        );
+        assert!(validate_order_and_split(&[first], seed, "task-input-sha256", usize::MAX,).is_ok());
+        assert!(
+            validate_order_and_split(
+                &[
+                    grouped_record("first", "payload/first.txt", &"1".repeat(64), &group, split,),
+                    second
+                ],
+                seed,
+                "task-input-sha256",
+                usize::MAX,
+            )
+            .is_ok()
+        );
+
+        let other_split = if split == Split::Test {
+            Split::Train
+        } else {
+            Split::Test
+        };
+        let crossed = [
+            grouped_record("first", "payload/first.txt", &"1".repeat(64), &group, split),
+            grouped_record(
+                "second",
+                "payload/second.txt",
+                &"2".repeat(64),
+                &group,
+                other_split,
+            ),
+        ];
+        assert_eq!(
+            validate_order_and_split(&crossed, seed, "task-input-sha256", usize::MAX),
+            Err(DuplicateLeakage)
+        );
     }
 }
