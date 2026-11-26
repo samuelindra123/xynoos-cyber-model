@@ -1634,7 +1634,10 @@ mod tests {
             });
             assert!(result.is_err(), "boundary {boundary:?} did not fail");
             assert!(!scratch.0.join(SIDECAR).exists());
-            assert!(temp_entries(&scratch.0).is_empty());
+            assert!(
+                temp_entries(&scratch.0).is_empty(),
+                "staging file remained after {boundary:?}"
+            );
             recover_sidecar_staging(&scratch.0).unwrap();
             assert!(temp_entries(&scratch.0).is_empty());
         }
@@ -1661,7 +1664,10 @@ mod tests {
             });
             assert!(result.is_err(), "boundary {boundary:?} did not fail");
             assert_eq!(fs::read(scratch.0.join(SIDECAR)).unwrap(), bytes);
-            assert!(temp_entries(&scratch.0).is_empty());
+            assert!(
+                temp_entries(&scratch.0) == [scratch.0.join(SIDECAR)],
+                "staging file remained after {boundary:?}"
+            );
             assert!(read_sidecar(&scratch.0).unwrap()["experiment_id"] == "stable");
         }
     }
