@@ -235,7 +235,7 @@ fn independent_source_attestation_rejects_wrong_revision_dirty_and_ignored_sourc
         .trim()
         .to_owned();
     let clone = Command::new("git")
-        .args(["clone", "--quiet", "--local"])
+        .args(["clone", "--quiet", "--no-hardlinks"])
         .arg(&build_root)
         .arg(&root)
         .output()
