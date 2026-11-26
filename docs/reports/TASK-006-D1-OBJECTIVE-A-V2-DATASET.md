@@ -43,7 +43,7 @@ experiment.
 ## Unchanged-weight baseline
 
 The native evaluator completed a manifest-backed baseline at the clean source
-revision `68d3f48d345545bb51fc35f833b2a2505fbdc765`. It initialized the
+revision `4a83c68a199d8844e2d01038bd5d94d8dc377959`. It initialized the
 research candidate with seed 107 and reused the same unchanged weights for
 train, validation, and test. No optimizer was constructed and no update was
 performed.
@@ -56,6 +56,7 @@ performed.
 | Source | `samuelindra123/xynoos-cyber-model`, clean at the source revision above |
 | Stream | BPE 32-merge train fit; BOS/EOS; sequence length 32; batch 1; per-document deterministic order |
 | Evaluation limits | 64 batches, 2,048 consumed tokens, 8,000,000,000 forward-work units, 64 MiB source, 32 batch positions |
+| Peak application reservation | 17,915,776 bytes locally; 17,915,790 bytes in hosted Foundation CI |
 
 | Split | Batches | Supervised targets | Mean cross entropy | Perplexity | Forward work | Complete | Test access |
 |---|---:|---:|---:|---:|---:|---|---|
@@ -68,9 +69,13 @@ The test split is read by the baseline evaluation and every test report marks
 `test_access: true`; it is not used for tokenizer fitting, training, or
 learning-rate selection. The full sequence
 cross entropy is not answer-only accuracy, so it does not establish transfer
-on the task labels. The release-profile baseline test completed in 11.60
-seconds after compilation. This evaluation is software verification, not a
-training run or evidence of cybersecurity capability.
+on the task labels. The release-profile baseline test completed in 10.82
+seconds after compilation. The exact candidate revision also passed the
+release baseline test in Foundation CI run `45823059589`, whose full workflow
+passed all 33 steps and the 181-check debug/release counts. The small
+reservation difference between local and hosted runs reflects measured
+application accounting, not process RSS. This evaluation is software
+verification, not a training run or evidence of cybersecurity capability.
 
 ## Reproduction
 

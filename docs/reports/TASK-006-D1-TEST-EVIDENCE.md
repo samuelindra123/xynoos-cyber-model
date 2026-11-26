@@ -2,8 +2,9 @@
 
 | Evidence identity | Value |
 |---|---|
-| Implementation revision | `da99cba3016b7fe564c42e65d8d2babe44b3b98f` |
-| Working tree | Clean during full debug and release workspace runs and the baseline run. |
+| Historical D1 implementation revision | `da99cba3016b7fe564c42e65d8d2babe44b3b98f` |
+| Latest D1 Objective A v2 candidate tested | `4a83c68a199d8844e2d01038bd5d94d8dc377959` |
+| Working tree | Clean for the latest candidate baseline, C3 audit target, and exact-head hosted workflow. |
 
 ## Executed Rust checks
 
@@ -15,14 +16,25 @@
 | `cargo fmt --all -- --check` | Passed |
 | `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | Passed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --offline` | Passed |
-| `python3 tools/check_repository.py` | Passed; 194 tracked files checked |
+| `python3 tools/check_repository.py` | Passed at the historical revision; 194 tracked files checked |
 
-Both Rust test profiles included the 5 auditor-authored C3 process tests, R2
-lock and sidecar tests, 6 evaluation tests, the initial baseline test, and the
-training test-split rejection. The initial full debug run before the coverage
-fix failed the detached lifecycle stop assertion; it exposed the evaluator's
-hard error at the batch cap. The final debug and release runs above were
-executed after the fix and both passed.
+The historical full-workspace local runs above covered 178 tests/doctests at
+`da99cba`. The latest candidate's exact-hosted Foundation CI run
+`45823059589` checked out `4a83c68a199d8844e2d01038bd5d94d8dc377959` and
+passed all 33 steps, including formatting, Clippy, all independent oracles,
+debug and release suites at 181 counted checks each, resource checks, and Rust
+documentation. The five C3 auditor-authored tests also passed locally in both
+profiles on that clean candidate revision. A local rerun of
+`python3 tools/check_repository.py` on `4a83c68` checked 255 tracked files.
+
+The historical full-workspace profiles included the 5 auditor-authored C3
+process tests, R2 lock and sidecar tests, 6 evaluation tests, the initial
+baseline test, and the training test-split rejection. The initial full debug
+run before the coverage fix failed the detached lifecycle stop assertion; it
+exposed the evaluator's hard error at the batch cap. The final historical
+debug and release runs were executed after the fix and both passed. The latest
+candidate's 181-check hosted runs include its additional v2 dataset and native
+trainer plumbing controls.
 
 ## Independent fixtures and controls
 
@@ -40,8 +52,9 @@ executed after the fix and both passed.
 
 The clean baseline command and its per-split metrics are recorded in the
 [scientific evaluation report](TASK-006-D1-SCIENTIFIC-EVALUATION.md). The
-test's source identity was clean and matched the implementation revision
-listed above.
+historical v1 fixture test's source identity was clean and matched
+`da99cba3016b7fe564c42e65d8d2babe44b3b98f`; the v2 baseline evidence is
+recorded separately at the latest candidate revision above.
 
 ## Evidence boundaries
 
