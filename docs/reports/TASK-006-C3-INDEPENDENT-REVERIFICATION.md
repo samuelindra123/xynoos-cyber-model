@@ -1,6 +1,6 @@
 # TASK 006-C3 — Independent Re-verification of TASK 006-R2
 
-**Audit outcome: R2 NEEDS ONE API-LEVEL PROVENANCE CORRECTION.** The three C2 findings are closed for the supported CLI path. The separate C3 pass found that public Rust constructors can still accept an unverified `source_clean=true`; see C3-F01. D1 must wait until that API gap is closed and the corrected revision is re-verified.
+**Audit outcome: R2 TECHNICAL FINDINGS CLOSED; HOSTED AND INDEPENDENT-REVIEW GATES PENDING.** The three C2 findings and C3-F01 are closed in the current R2 revision. C3's auditor-authored tests pass in debug and release. The exact R2 hosted workflow still ends red only because its expected direct-test count is one too low; the C3 branch updates that count and adds its five audit checks. A separate human/agent review is still required for independent acceptance.
 
 This audit was performed on a separate audit branch after freezing R2. It adds auditor-authored process and fault-injection tests in [the C3 test module](../../crates/xynoos-training/tests/task006c3_independent.rs). The same autonomous agent authored both R2 and this audit. No second human or independent agent reviewed the implementation, so this is a separate verification pass, not independent organizational certification.
 
@@ -9,10 +9,10 @@ This audit was performed on a separate audit branch after freezing R2. It adds a
 | Item | Evidence |
 |---|---|
 | Repository | `samuelindra123/xynoos-cyber-model` |
-| R2 implementation under review | `3952485160135fe9f76e66845d4e65b49d63c341` |
-| C3 process/fault tests | `f979325` and `2df2598` on `audit/task-006-c3-runtime-reverification` |
+| R2 implementation under review | `e6336e3af48ab5be7a55c99a90b5b84c94d0992d` |
+| C3 process/fault tests | `e1f8b2c`, `e447f51`, and `3ab09a1` on `audit/task-006-c3-runtime-reverification` |
 | PR #21 | Open draft; no merge performed. |
-| Exact R2 hosted run | Foundation CI `45768465704`, job `139735057716`, checked out exact SHA `395248…`. Debug and release test suites and all preceding gates passed. The job ended red only at the stale fixed test-count assertion (expected 150). The auditor corrected child test output capture and the count on the C3 branch; that correction still needs hosted evidence on its new SHA. |
+| Exact R2 hosted run | Foundation CI `45771271381`, job `139744217648`, checked out exact SHA `e6336e3…`. Debug and release suites and all preceding gates passed. It ended red only at the direct-test count assertion: workflow expected 164, log contained 165 direct results. Child worker output is now suppressed; the C3 branch expects 170 (165 R2 plus five C3 results). Hosted evidence for the corrected total is pending. |
 | Source status | The C3 working tree was clean for the recorded test commands. |
 | Training/compute boundary | No workflow dispatch, TASK 006-D experiment, external dataset acquisition, paid compute, Colab runtime, or public artifact upload occurred. One bounded Objective A CLI execution is part of the sidecar restart software test and is not a research experiment. |
 
@@ -28,13 +28,13 @@ The C3 test module independently coordinates six OS processes against one lineag
 
 The local advisory-lock contract assumes a trusted Linux/POSIX filesystem with working advisory locks. Remote filesystems and hostile directory replacement races remain outside the documented contract.
 
-### C2-F02 — CLI source identity: closed for the official CLI path; C3-F01 remains
+### C2-F02 and C3-F01 — source identity: closed for CLI and public Rust APIs
 
 The CLI now checks the canonical GitHub repository, compiled build revision, checkout `HEAD`, tracked modifications, visible untracked files, and ignored implementation files under the workspace source paths. The runtime binds repository and revision into the immutable config digest and reports.
 
-The independent C3 temporary-repository tests accept a clean canonical checkout and reject wrong repository, wrong configured revision, modified tracked source, and ignored untracked source. The CLI regression suite also exercises strict config admission at the frozen source SHA.
+The public API now seals build provenance inside `attest_source_checkout`; callers provide only the configured repository and revision. It returns an opaque `SourceIdentity` with private fields. `RunIdentity::from_standard_dataset` requires that value, while the unchecked constructor is crate-private. A compile-fail doctest verifies external code cannot forge `SourceIdentity` directly.
 
-The public library constructors remain a bypass: callers can currently provide `source_clean=true` to `RunIdentity::new` or `RunIdentity::from_standard_dataset` without obtaining a `SourceIdentity` from checkout attestation. That is an open medium-severity finding, even though the official CLI does not use the bypass.
+The independent C3 clone-based test accepts a clean clone at the compiled SHA and rejects wrong repository, wrong revision, modified tracked source, and ignored untracked implementation source. The CLI regression suite exercises configuration admission at the same source identity.
 
 ### C2-F03 — initial sidecar publication: closed for tested local Linux filesystems
 
@@ -44,12 +44,13 @@ The separate C3 fault test applies `RLIMIT_FSIZE=0` to the CLI child. Linux term
 
 ## Scope limits
 
-- R2's 31 training-library tests, 4 CLI unit tests, 3 CLI process tests, and 5 lock-process tests passed locally across the clean R2 revision and the C3 audit branch. The exact R2 hosted run reports debug and release suites passed; its only failing step was the stale test-count assertion.
-- Checkpoint semantic validation and atomic publication, journal monotonicity, trainer logging failures, optimizer transaction controls, resume equivalence, and resource accounting are covered by the existing package regressions and earlier auditor-authored TASK 006-C controls. C3 re-ran the complete workspace suites on hosted CI at R2 SHA `395248…`; no test failure was reported.
+- R2's 32 training-library tests, 4 CLI unit tests, 3 CLI process tests, 5 lock-process tests, and 1 compile-fail doctest passed locally in debug and release at `e6336e3…`.
+- The five C3 auditor-authored tests passed locally in debug and release after the API correction. Checkpoint semantics/publication, journal monotonicity, logging failures, optimizer transactions, resume equivalence, and resource accounting are also covered by existing package regressions and prior auditor-authored TASK 006-C controls.
+- The exact R2 hosted run reports all debug and release suites passed; its only failing step was the count assertion (expected 164, observed 165 direct results). C3's workflow count is 170 after adding five C3 checks; that exact branch run remains pending.
 - Local detached-session tests do not establish survival after GitHub runner cancellation, SSH disconnect, Colab CLI disconnect, remote artifact transfer, or provider cleanup.
 - Advisory-lock crash recovery depends on local Linux kernel/filesystem behavior. Power loss beyond requested file/directory syncs, network filesystems, and hostile directory races are not claimed.
-- `RunIdentity::new` remains public and allows a library caller to self-assert source cleanliness. This is the only confirmed R2 code finding in this pass.
+- Advisory locks are verified only for local Linux/POSIX filesystem behavior, not remote filesystem semantics or hostile directory replacement.
 
 ## Readiness recommendation
 
-**Do not advance to TASK 006-D1 yet.** Make source identity opaque to public training APIs: only checkout attestation should create a usable source identity, and dataset-backed run identity construction should require that attestation. Then rerun the relevant API, CLI, debug/release, and exact-head hosted checks. A reviewer separate from the implementation author must still inspect the frozen R2 diff and C3 evidence before treating this audit as independent acceptance.
+**R2 technical remediation is ready to proceed after hosted CI passes on the corrected count.** C3's five audit tests and the full training package pass locally in debug and release. A reviewer separate from the implementation author must still inspect the frozen R2 diff and C3 evidence before treating this audit as independent acceptance.

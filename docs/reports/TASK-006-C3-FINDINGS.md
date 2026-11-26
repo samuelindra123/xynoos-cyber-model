@@ -2,9 +2,9 @@
 
 | ID | Severity | Status | Finding | Required action |
 |---|---|---|---|---|
-| C3-F01 | Medium | Open | Public `RunIdentity::new` and `RunIdentity::from_standard_dataset` accept caller-supplied `source_clean=true`. A Rust library caller can bypass the CLI's verified repository/revision/working-tree attestation and create a run identity that claims clean provenance. | Make source identity an opaque attestation value produced only by `attest_source_checkout`; require it when constructing a dataset-backed run identity. Keep any unchecked test constructor crate-private. Add an API-level negative/positive regression and repeat exact-head checks. |
+| C3-F01 | Medium | Closed in `e6336e3` | Public callers could self-assert `source_clean=true` through `RunIdentity` constructors. | The training crate now embeds build provenance, public attestation uses it internally, `SourceIdentity` fields are private, dataset-backed identity construction requires the opaque attestation, and unchecked construction is crate-private. Debug/release package regressions and a compile-fail doctest pass. |
 | C3-P01 | Acceptance blocker | Open | Implementation and C3 audit were performed by the same autonomous agent. The audit has a separate branch, code-free verification pass, and auditor-authored tests, but no independent human or agent reviewed the frozen R2 code. | Obtain review from a party separate from the implementation author before treating C3 as independent acceptance. |
-| C3-I01 | Informational | Closed | The R2 hosted workflow's fixed 150-check total was stale; the branch had 163 direct checks and child worker output inflated the raw log total. | C3 branch suppresses child test output and updates the expected suite total to 168 after adding five C3 tests. Hosted verification is pending. |
+| C3-I01 | Informational | Implemented; hosted verification pending | The R2 hosted workflow's fixed test total was stale; the latest R2 run expected 164 and observed 165 direct checks. | Child test output is suppressed. C3 expects 170 total direct checks (165 R2 plus five C3 checks); exact C3 hosted verification is pending. |
 
 ## Severity meaning
 
@@ -12,4 +12,4 @@
 - **Acceptance blocker:** no implementation defect is implied; the independent-verification governance requirement is not met by a same-agent audit.
 - **Informational:** a verification workflow defect or evidence boundary that does not change runtime results.
 
-No stale-lock double-admission or partial-sidecar defect was reproduced after R2. C3-F01 keeps R2 from passing audit until corrected. No training dispatch or compute provisioning is authorized by this report.
+No stale-lock double-admission, partial-sidecar, or self-asserted public-source-identity defect remains in the audited R2 source. No training dispatch or compute provisioning is authorized by this report.
