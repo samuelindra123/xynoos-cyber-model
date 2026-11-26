@@ -12,14 +12,25 @@ signal. It cannot establish cybersecurity intelligence, broad technical
 generalization, or safe model behavior. Objective B remains a separate future
 corpus and evaluation effort.
 
-The earlier three-learning-rate sweep is retired. The current Objective A
-fixture has two training rows, two validation rows, and two test rows, only 64
-supervised targets per split. The audit found no normalized exact duplicates,
-but train and validation reuse the same template families; the maximum
-cross-split character-trigram Jaccard is 0.717391. The test set has a single
-template family. Those observations make the fixture a useful software
-control, not a defensible rate-selection dataset. The full details and limits
-are in the [split and tokenizer audit](../reports/TASK-006-D1-SPLIT-LEAKAGE-AUDIT.md).
+The earlier three-learning-rate sweep is retired. The current D1 candidate
+is Objective A v3: 60 project-authored rows (24 train, 18 validation, 18
+public test) across parity, integer comparison, and modular progression.
+Its dataset ID is
+`6b8d4b140c8d20636b206cb6259a1789a2734f5a13d7fd234e3d39aad3037c87`, its
+manifest SHA-256 is
+`db2577c6ed7f0f74c69b643dc9d74683c76084ddf8dc21bddc0ce072c56562b8`, and
+the 32-merge train-only tokenizer SHA-256 is
+`9ac03af34eaa496a54dc7721f83107ecdd14c26c643fb4c51d34de9afe77d6d0`.
+
+The v3 audit found no normalized exact, task-input, template, or cross-split
+character-trigram Jaccard overlap at or above 0.82 (maximum 0.461538). The
+corpus still has one authored source/date, a small task inventory, no human
+review, and a public test that was read for the unchanged-weight baseline.
+It cannot support a hidden-test claim or a broad generalization claim. Ten
+answer spans begin inside merged BPE tokens, so answer-bearing loss includes
+some prompt bytes. The v3 baseline and limitations are recorded in the
+[dataset report](https://github.com/samuelindra123/xynoos-cyber-model/blob/ccfc85421902d6e7b3fee195acaa0cf6c5300e30/docs/reports/TASK-006-D1-OBJECTIVE-A-V3-DATASET.md); it
+establishes evaluation behavior only, not post-update learning.
 
 ## Evaluation policy
 
@@ -28,16 +39,21 @@ with token-weighted aggregation, work and source-memory caps, explicit empty
 supervision, model-state hashing, and an explicit test-access marker. Periodic
 validation accepts only the validation split; trainer construction accepts
 only the training split. The manifest-backed evaluator binds evaluation to the
-validated dataset and fitted tokenizer. Initial-weight baseline reports must
-cover train, validation, and test before training; the locked test must be
-evaluated after selection and must not influence training or selection. A
-report marks a capped prefix with `coverage_complete: false`; partial-split
+validated dataset and fitted tokenizer.
+
+Initial-weight baseline reports must cover train, validation, and public-test
+batches before training. The v3 test was read in the unchanged-weight
+baseline; it is not locked and cannot support a hidden post-selection claim.
+Test access is tagged and validation/test are rejected from training; keep
+test out of training and schedule choice. A future locked evaluation needs
+a reviewed test-access policy and a hidden set not used during selection.
+A report marks a capped prefix with `coverage_complete: false`; partial-split
 reports cannot be used as full-split baselines or selection metrics.
 
-The checked-in two-batch validation pass uses 64 supervised targets. The
-earlier 24-update work estimate was based on one batch per validation event.
-Recalculated with two batches at updates 6, 12, 18, and 24, the current upper
-bound is:
+The checked-in two-batch validation pass used 64 targets on the tiny v1
+fixture. The following 24-update estimate is a historical fixture ceiling,
+not an admitted plan or transferable v3 estimate. It assumes one validation
+batch per event, recalculated with two at updates 6, 12, 18, and 24:
 
 | Component | Charged work units |
 |---|---:|
@@ -50,24 +66,31 @@ bound is:
 One additional validation batch at every cadence event adds 400,000,128 work
 units and exceeds that ceiling. Initial baseline and final locked-test passes
 are separate evaluation operations and need their own explicit limits. The
-existing measured Objective A software fixture used 133,789,512 forward-work
+existing measured Objective A v1 software fixture used 133,789,512 forward-work
 units per two-batch split evaluation. This is a measurement of the tiny fixture,
-not a cost estimate for a larger dataset.
+not a cost estimate for a larger dataset. The later v3 unchanged-weight baseline
+used 3,124,414,056 forward-work units across its five evaluator passes.
 
 The 24-update plan consumes 768 supervised training targets and cannot cover
-64 distinct 32-token training windows once. The current 8B work ceiling cannot
-be assumed to support a larger coverage target; the plan must be recomputed
-from the frozen dataset, validation cadence, and actual memory/work counters.
-Do not claim that 24 updates or 768 targets are sufficient. Do not reduce
-held-out coverage to fit a workflow ceiling. No learning-rate sweep or
-candidate-selection plan is accepted at this stage.
+64 distinct 32-token training windows once. The v3 evaluation stream is
+`[2,16]`, while the candidate trainer accepts `[1,32]`; the paired training
+input was rejected before any update. Thus no v3 training-work estimate exists.
+The old 24-update estimate excludes the v3 baseline and is retired. Recompute
+the work budget only after a semantically correct training input and reviewed
+protocol are available. Do not claim that 24 updates or 768 targets are
+sufficient. Do not reduce held-out coverage to fit a workflow ceiling. No
+learning-rate sweep or candidate-selection plan is accepted at this stage.
 
 ## Readiness gates still open
 
-- Author a larger, manifest-backed Objective A dataset and freeze its
-  provenance, splits, deterministic order, tokenizer fit, and leakage report.
-- Independently review that dataset and the evaluation policy, including a
-  meaningful held-out combination or family target.
+- Have an independent reviewer assess v3 task validity, tokenizer provenance,
+  held-out family coverage, leakage limits, and test-access policy; prepare a
+  reviewed alternative if v3 is not adequate for a narrow engineering control.
+- Resolve the `[2,16]` evaluation versus `[1,32]` trainer mismatch with a
+  semantically correct, verified training data path.
+- Keep the current public test out of training and schedule selection; create
+  and review a locked or otherwise inaccessible held-out evaluation set before
+  making any generalization claim.
 - Recompute a single-run work, memory, runtime, and evaluation budget from the
   actual dataset and the supported CPU measurements.
 - Select and verify private checkpoint storage. This repository is public, so
