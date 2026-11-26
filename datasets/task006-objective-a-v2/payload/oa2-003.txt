@@ -1,0 +1,2 @@
+Order: 104 vs 104; result=equal. Signed rule.
+ End of record. Synthetic control sample.

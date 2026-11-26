@@ -1,0 +1,2 @@
+Classify n=405, r2=1: odd. Integer rule.
+ End of record. Synthetic control sample.

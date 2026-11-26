@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md docs/reports/TASK-006-D1-SCIENTIFIC-EVALUATION.md docs/reports/TASK-006-D1-TEST-EVIDENCE.md docs/reports/TASK-006-D1-SPLIT-LEAKAGE-AUDIT.md research/README.md models/README.md datasets/README.md benchmarks/README.md experiments/README.md)
+          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md docs/reports/TASK-006-D1-SCIENTIFIC-EVALUATION.md docs/reports/TASK-006-D1-TEST-EVIDENCE.md docs/reports/TASK-006-D1-SPLIT-LEAKAGE-AUDIT.md docs/reports/TASK-006-D1-OBJECTIVE-A-V2-DATASET.md docs/reports/TASK-006-D1-OBJECTIVE-A-V3-DATASET.md research/README.md models/README.md datasets/README.md datasets/task006-objective-a-v2/manifest.json datasets/task006-objective-a-v2/sources.jsonl datasets/task006-objective-a-v2/documents.jsonl datasets/task006-objective-a-v2/tokenizer-fit.jsonl datasets/task006-objective-a-v2/tokenizer.tsv datasets/task006-objective-a-v2/task-index.json datasets/task006-objective-a-v3/manifest.json datasets/task006-objective-a-v3/sources.jsonl datasets/task006-objective-a-v3/documents.jsonl datasets/task006-objective-a-v3/tokenizer-fit.jsonl datasets/task006-objective-a-v3/tokenizer.tsv datasets/task006-objective-a-v3/task-index.json tools/task006_objective_a_v2.py tools/task006_objective_a_v2_audit.py tools/fixtures/task006-objective-a-v2-audit.json tools/task006_objective_a_v3.py tools/task006_objective_a_v3_audit.py tools/fixtures/task006-objective-a-v3-audit.json crates/xynoos-data/tests/task006_objective_a_v2.rs crates/xynoos-data/tests/task006_objective_a_v3.rs benchmarks/README.md experiments/README.md)
           for file in "${required[@]}"; do
             test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
           done
@@ -141,6 +141,16 @@ jobs:
       - name: Verify Objective A split and tokenizer leakage audit
         run: python3 tools/task006_evaluation_audit.py --check
 
+      - name: Verify Objective A v2 corpus and independent audit
+        run: |
+          python3 tools/task006_objective_a_v2.py --check
+          python3 tools/task006_objective_a_v2_audit.py --check
+
+      - name: Verify Objective A v3 corpus and independent audit
+        run: |
+          python3 tools/task006_objective_a_v3.py --check
+          python3 tools/task006_objective_a_v3_audit.py --check
+
       - name: Regenerate and verify independent tokenizer and dataset fixtures
         run: python3 tools/tokenizer_data_oracle.py --check
 
@@ -195,8 +205,8 @@ jobs:
         run: |
           for profile in debug release; do
             total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
-            test "$total" -eq 178
-            printf '%s matches 138 preserved checks, 12 prior TASK 006-R checks, 15 R2 checks, 5 C3 audit checks and 8 D1 evaluation checks\n' "$profile"
+            test "$total" -eq 187
+            printf '%s matches 138 preserved checks, 12 prior TASK 006-R checks, 15 R2 checks, 5 C3 audit checks and 17 D1 evaluation, corpus, baseline, answer-bearing evaluation and trainer-integration checks\n' "$profile"
           done
 
       - name: Measure isolated Transformer reference passes

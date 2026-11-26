@@ -1,0 +1,2 @@
+Compare 749/749; relation=equal. Integer order.
+ End of record. Synthetic control sample.
