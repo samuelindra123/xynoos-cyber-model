@@ -2090,4 +2090,72 @@ mod tests {
         }
         fs::remove_dir_all(path).unwrap();
     }
+
+    #[test]
+    fn auditor_semantic_mutation_with_recomputed_integrity_is_rejected() {
+        let tokenizer = tokenizer();
+        let identity = identity(&tokenizer);
+        let config = config();
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            &tokenizer,
+            config.seed(),
+            config.autograd_limits(),
+        )
+        .unwrap();
+        let optimizer = AdamW::new(model.parameters(), config.optimizer()).unwrap();
+        let path = root();
+        CheckpointCodec::write_atomic(&path, &snapshot(&identity, config, &model, &optimizer, 0))
+            .unwrap();
+        let checkpoint = path.join("checkpoint.xyckpt");
+        let mut bytes = fs::read(&checkpoint).unwrap();
+
+        // Independently walk the documented section/field/container framing.
+        let mut section = HEADER_BYTES;
+        let mut adam_start = None;
+        let mut hash_start = None;
+        while section < bytes.len() {
+            let tag = &bytes[section..section + 4];
+            let payload_len =
+                u64::from_le_bytes(bytes[section + 8..section + 16].try_into().unwrap()) as usize;
+            if tag == b"ADAM" {
+                adam_start = Some(section + 16);
+            }
+            if tag == b"HASH" {
+                hash_start = Some(section);
+                break;
+            }
+            section += 16 + payload_len;
+        }
+        let mut field = adam_start.unwrap();
+        let second_moment_cell = loop {
+            let id = u16::from_le_bytes(bytes[field..field + 2].try_into().unwrap());
+            let length =
+                u64::from_le_bytes(bytes[field + 2..field + 10].try_into().unwrap()) as usize;
+            let value = field + 10;
+            if id == 10 {
+                let mut record = value + 4; // tensor count
+                let elements =
+                    u32::from_le_bytes(bytes[record + 4..record + 8].try_into().unwrap()) as usize;
+                record += 8; // first tensor's index and element count
+                break record + elements * 4; // second-moment values follow first-moment values
+            }
+            field = value + length;
+        };
+        bytes[second_moment_cell..second_moment_cell + 4]
+            .copy_from_slice(&(-1.0_f32).to_bits().to_le_bytes());
+
+        let hash_start = hash_start.unwrap();
+        let digest: [u8; 32] = Sha256::digest(&bytes[..hash_start]).into();
+        let hash_value = hash_start + 16 + 10; // section header, field id, field length
+        bytes[hash_value..hash_value + 32].copy_from_slice(&digest);
+        fs::write(&checkpoint, bytes).unwrap();
+        assert_eq!(
+            CheckpointCodec::load(&path, &identity, config, &tokenizer),
+            Err(TrainingError::Checkpoint("non_finite_or_negative_moment"))
+        );
+        assert_eq!(model.parameters().revision(), 74);
+        assert_eq!(optimizer.step_count(), 0);
+        fs::remove_dir_all(path).unwrap();
+    }
 }
