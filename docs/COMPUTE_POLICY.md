@@ -14,6 +14,24 @@ Allocating calls enforce a 64 MiB ceiling per tensor on both logical f32 payload
 
 GitHub Actions remains the default for CI and build validation, mathematical verification, independent oracles, regression testing, bounded CPU experiments, and initial small-scale model training when suitable for its resource limits. Keep jobs bounded, deterministic where appropriate, and transparent about measured resource use.
 
+For TASK 006 experiments, compute-budget fit is not scientific or dispatch
+approval. First pass the frozen-data, split/leakage, unchanged-weight baseline,
+source/config identity, and private-recovery gates. Count training, validation,
+checkpoint, and recovery work together. Under the current CPU Actions profile,
+the hard software ceilings are 24 updates, 768 consumed/supervised tokens,
+8 billion cumulative work units, 64 MiB owned memory, 64 MiB autograd
+allowance, 4 MiB data allowance, 120 seconds active runtime, 90 seconds per
+attempt, and 16 MiB per checkpoint. These maxima do not imply that a proposed
+experiment is meaningful or fits its wall-time budget. Before admission,
+measure the exact workload at least three times in the candidate provider's
+bounded CPU environment; record throughput, wall time, work, memory, and
+checkpoint results, and use the slowest run against the hard limits. GitHub
+Actions remains the default. Colab is considered only when measured CPU
+constraints prevent the scientific objective; an accelerator requires a
+native backend, independent numerical parity, a measured benefit, and an
+authorized resource budget. See the [TASK 006-D3 compute readiness report](reports/TASK-006-D3-COMPUTE-READINESS.md)
+for the current measurements and remaining gates.
+
 Do not weaken a meaningful model-quality objective solely to fit GitHub Actions. First measure whether the limiting factor is throughput, duration, peak memory, architecture, dataset coverage, or another constraint. Investigate numerical, architectural, optimizer, and dataset defects independently; moving a workload does not fix those defects.
 
 ## Adaptive compute and remote training
