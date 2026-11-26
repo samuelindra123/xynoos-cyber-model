@@ -129,6 +129,9 @@ jobs:
       - name: Verify independent AdamW numerical oracle
         run: python3 tools/adamw_reference.py --check
 
+      - name: Run auditor-authored native AdamW and weighted-gradient controls
+        run: cargo test -p xynoos-autograd --test task006c_independent --locked --offline -- --show-output
+
       - name: Verify frozen Objective A learning fixture
         run: python3 tools/task006_objective_a.py --check
 
@@ -186,8 +189,8 @@ jobs:
         run: |
           for profile in debug release; do
             total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
-            test "$total" -eq 135
-            printf '%s matches 109 preserved checks, one auditor-authored control, and 25 TASK 006-B checks\n' "$profile"
+            test "$total" -eq 138
+            printf '%s matches 109 preserved checks, one prior auditor control, three TASK 006-C controls, and 25 TASK 006-B checks\n' "$profile"
           done
 
       - name: Measure isolated Transformer reference passes
