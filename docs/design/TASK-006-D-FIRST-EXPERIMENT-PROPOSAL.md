@@ -29,7 +29,7 @@ review, and a public test that was read for the unchanged-weight baseline.
 It cannot support a hidden-test claim or a broad generalization claim. Ten
 answer spans begin inside merged BPE tokens, so answer-bearing loss includes
 some prompt bytes. The v3 baseline and limitations are recorded in the
-[dataset report](https://github.com/samuelindra123/xynoos-cyber-model/blob/ccfc85421902d6e7b3fee195acaa0cf6c5300e30/docs/reports/TASK-006-D1-OBJECTIVE-A-V3-DATASET.md); it
+[dataset report](https://github.com/samuelindra123/xynoos-cyber-model/blob/f122f4e283b06d2cd20dd544fc0b18af4c8b6c98/docs/reports/TASK-006-D1-OBJECTIVE-A-V3-DATASET.md); it
 establishes evaluation behavior only, not post-update learning.
 
 ## Evaluation policy
@@ -71,23 +71,34 @@ units per two-batch split evaluation. This is a measurement of the tiny fixture,
 not a cost estimate for a larger dataset. The later v3 unchanged-weight baseline
 used 3,124,414,056 forward-work units across its five evaluator passes.
 
-The 24-update plan consumes 768 supervised training targets and cannot cover
-64 distinct 32-token training windows once. The v3 evaluation stream is
-`[2,16]`, while the candidate trainer accepts `[1,32]`; the paired training
-input was rejected before any update. Thus no v3 training-work estimate exists.
-The old 24-update estimate excludes the v3 baseline and is retired. Recompute
-the work budget only after a semantically correct training input and reviewed
-protocol are available. Do not claim that 24 updates or 768 targets are
-sufficient. Do not reduce held-out coverage to fit a workflow ceiling. No
-learning-rate sweep or candidate-selection plan is accepted at this stage.
+The v3 trainer-facing stream now emits one independently padded `[1,32]` batch
+per train document, with 24 batches and 197 supervised targets; no document
+is packed across another. A deterministic two-update software control
+completed with 19 consumed/supervised train tokens, 18 validation tokens
+across two one-batch partial validation events, and no test access. It charged
+825,200,872 cumulative work units and took 17.2875 seconds active in local
+debug, with per-update checkpoints. A simple twelve-fold projection for 24
+such updates is 9,902,410,464 work units, above the 8-billion ceiling. This is
+not a measured full run: it omits the initial baseline and complete validation
+coverage, so it cannot establish a feasible 24-update budget. The two-update
+control is software verification, not a learning experiment.
+
+Do not claim that 24 updates or 768 targets are sufficient. The earlier
+three-learning-rate sweep and v2 ceiling calculation are retired. No v3
+schedule is selected: the corpus still needs independent review, a locked
+held-out evaluation protocol, and a complete work/runtime calculation that
+preserves full validation coverage without exceeding the ceiling. Do not
+reduce held-out coverage or weaken the ceiling to force admission.
 
 ## Readiness gates still open
 
 - Have an independent reviewer assess v3 task validity, tokenizer provenance,
   held-out family coverage, leakage limits, and test-access policy; prepare a
   reviewed alternative if v3 is not adequate for a narrow engineering control.
-- Resolve the `[2,16]` evaluation versus `[1,32]` trainer mismatch with a
-  semantically correct, verified training data path.
+- Independently review the supported v3 trainer stream and decide whether the
+  corpus is adequate for the narrow learning question. Derive a full-coverage
+  experiment budget from actual measurements; the current 24-update partial
+  cadence projection already exceeds the 8-billion work limit.
 - Keep the current public test out of training and schedule selection; create
   and review a locked or otherwise inaccessible held-out evaluation set before
   making any generalization claim.
