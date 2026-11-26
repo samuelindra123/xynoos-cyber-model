@@ -176,10 +176,11 @@ pub struct TrainingReport {
 }
 
 impl TrainingReport {
-    fn json(&self, source_sha: &str, config_digest: [u8; 32]) -> Value {
+    fn json(&self, repository_id: &str, source_sha: &str, config_digest: [u8; 32]) -> Value {
         json!({
             "schema_version": 1,
             "experiment_id": self.experiment_id,
+            "repository_id": repository_id,
             "source_sha": source_sha,
             "config_sha256": hex(&config_digest),
             "model_id": crate::MODEL_ID,
@@ -574,6 +575,7 @@ impl<S: BatchSource> Trainer<S> {
         }
         let first_report = self.build_report(reason);
         let mut report_json = first_report.json(
+            self.identity.source_repository_id(),
             self.identity.source_revision(),
             self.config.digest(&self.identity),
         );
@@ -587,6 +589,7 @@ impl<S: BatchSource> Trainer<S> {
         self.timings.shutdown.push(shutdown_start.elapsed());
         let report = self.build_report(reason);
         let mut final_json = report.json(
+            self.identity.source_repository_id(),
             self.identity.source_revision(),
             self.config.digest(&self.identity),
         );
@@ -2175,7 +2178,8 @@ mod tests {
             checkpoint_before
         );
         assert!(!root.join("run.journal").exists());
-        assert!(!root.join(".run.lock").exists());
+        assert!(root.join(".run.lock").is_file());
+        assert!(!crate::AdvisoryLock::is_held(&root.join(".run.lock")).unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 }

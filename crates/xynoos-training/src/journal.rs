@@ -8,7 +8,10 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::{CheckpointCounters, Result, RunLimits, TrainingError, runtime::validate_root};
+use crate::{
+    AdvisoryLock, CheckpointCounters, LockError, Result, RunLimits, TrainingError,
+    runtime::validate_root,
+};
 
 const MAGIC: &[u8; 8] = b"XYNOOSJ1";
 const PREFIX: usize = 96;
@@ -35,7 +38,7 @@ pub struct JournalProgress {
 pub struct RunJournal {
     root: PathBuf,
     path: PathBuf,
-    _lock: LockFile,
+    _lock: AdvisoryLock,
     config_digest: [u8; 32],
     progress: JournalProgress,
     limits: RunLimits,
@@ -86,7 +89,10 @@ impl RunJournal {
     ) -> Result<Self> {
         validate_root(root)?;
         let lock_path = root.join(".run.lock");
-        let lock = acquire_lock(&lock_path)?;
+        let lock = AdvisoryLock::acquire(&lock_path).map_err(|error| match error {
+            LockError::Contended => TrainingError::RunLockContended,
+            LockError::RecoveryFailure(kind) => TrainingError::RunLockRecoveryFailure(kind),
+        })?;
         let path = root.join("run.journal");
         validate_regular_or_missing(&path)?;
         let loaded = read_journal(&path, config_digest)?;
@@ -344,18 +350,6 @@ fn validate_progress(
     Ok(())
 }
 
-#[derive(Debug)]
-struct LockFile {
-    path: PathBuf,
-    _file: File,
-}
-
-impl Drop for LockFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
 fn read_journal(path: &Path, digest: [u8; 32]) -> Result<Option<JournalProgress>> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -426,37 +420,6 @@ fn validate_regular_or_missing(path: &Path) -> Result<()> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
-}
-
-fn acquire_lock(path: &Path) -> Result<LockFile> {
-    for _ in 0..2 {
-        match OpenOptions::new().write(true).create_new(true).open(path) {
-            Ok(mut file) => {
-                writeln!(file, "{}", std::process::id())?;
-                file.sync_all()?;
-                return Ok(LockFile {
-                    path: path.to_path_buf(),
-                    _file: file,
-                });
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let metadata = fs::symlink_metadata(path)?;
-                if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 32 {
-                    return Err(TrainingError::InvalidConfiguration);
-                }
-                let pid = fs::read_to_string(path)?
-                    .trim()
-                    .parse::<u32>()
-                    .map_err(|_| TrainingError::InvalidConfiguration)?;
-                if Path::new("/proc").join(pid.to_string()).exists() {
-                    return Err(TrainingError::InvalidConfiguration);
-                }
-                fs::remove_file(path)?;
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(TrainingError::InvalidConfiguration)
 }
 
 fn duration_ns(value: Duration) -> Result<u64> {

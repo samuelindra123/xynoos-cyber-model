@@ -4,8 +4,10 @@ use std::{
     env,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
+    os::unix::fs::OpenOptionsExt,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -18,8 +20,8 @@ use xynoos_data::{
 };
 use xynoos_tokenizer::{Boundaries, TokenizerLimits};
 use xynoos_training::{
-    CheckpointCodec, LinearWarmupDecay, RunIdentity, RunJournal, RunLimits, StopToken, Trainer,
-    TrainingConfig, TrainingMemoryPlan,
+    AdvisoryLock, CheckpointCodec, LinearWarmupDecay, LockError, RunIdentity, RunJournal,
+    RunLimits, StopToken, Trainer, TrainingConfig, TrainingMemoryPlan, attest_source_checkout,
 };
 
 const CONFIG_MAX: usize = 16 * 1024;
@@ -49,6 +51,7 @@ struct Args {
 
 struct Prepared {
     experiment_id: String,
+    source_repository_id: String,
     source_revision: String,
     dataset_id: String,
     config_sha256: [u8; 32],
@@ -60,12 +63,122 @@ struct Prepared {
     dataset_root: PathBuf,
 }
 
-struct LaunchLock(PathBuf);
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessIdentity {
+    pid: u32,
+    start_time_ticks: u64,
+    boot_id: String,
+}
 
-impl Drop for LaunchLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+impl ProcessIdentity {
+    fn current() -> CliResult<Self> {
+        let pid = std::process::id();
+        Ok(Self {
+            pid,
+            start_time_ticks: process_start_time(pid)?,
+            boot_id: read_boot_id()?,
+        })
     }
+
+    fn encode(&self) -> String {
+        format!(
+            "XYNOOS-PROCESS-1\t{}\t{}\t{}\n",
+            self.pid, self.start_time_ticks, self.boot_id
+        )
+    }
+
+    fn parse(value: &str) -> CliResult<Self> {
+        let fields: Vec<_> = value.split_whitespace().collect();
+        if fields.len() != 4 || fields[0] != "XYNOOS-PROCESS-1" {
+            return Err("invalid process identity record".into());
+        }
+        let pid = fields[1]
+            .parse::<u32>()
+            .map_err(|_| "invalid process identity PID")?;
+        let start_time_ticks = fields[2]
+            .parse::<u64>()
+            .map_err(|_| "invalid process start-time identity")?;
+        let boot_id = fields[3].to_owned();
+        if pid == 0 || !is_valid_boot_id(&boot_id) {
+            return Err("invalid process identity fields".into());
+        }
+        Ok(Self {
+            pid,
+            start_time_ticks,
+            boot_id,
+        })
+    }
+
+    fn is_same_process_alive(&self) -> CliResult<bool> {
+        if read_boot_id()? != self.boot_id {
+            return Ok(false);
+        }
+        if matches!(process_state(self.pid)?.as_str(), "Z" | "X") {
+            return Ok(false);
+        }
+        match process_start_time(self.pid) {
+            Ok(start_time) => Ok(start_time == self.start_time_ticks),
+            Err(error) if error == "process not found" => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+struct ProcessIdentityGuard {
+    root: PathBuf,
+    identity: ProcessIdentity,
+    active: bool,
+}
+
+impl ProcessIdentityGuard {
+    fn register(root: &Path) -> CliResult<Self> {
+        if !live_run_lock(root)? {
+            return Err("process identity cannot be registered without journal ownership".into());
+        }
+        let identity = ProcessIdentity::current()?;
+        if let Some(previous) = read_process_identity(root)?
+            && previous != identity
+            && previous.is_same_process_alive()?
+        {
+            return Err("another live process identity remains registered".into());
+        }
+        write_process_identity(root, &identity)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            identity,
+            active: true,
+        })
+    }
+
+    fn remove(mut self) -> CliResult<()> {
+        self.remove_inner()?;
+        self.active = false;
+        Ok(())
+    }
+
+    fn remove_inner(&self) -> CliResult<()> {
+        let Some(current) = read_process_identity(&self.root)? else {
+            return Ok(());
+        };
+        if current != self.identity {
+            return Err("process identity changed before owner cleanup".into());
+        }
+        fs::remove_file(self.root.join(PROCESS_PID))
+            .map_err(|error| format!("remove process identity: {error}"))?;
+        sync_directory(&self.root, "process identity cleanup")
+    }
+}
+
+impl Drop for ProcessIdentityGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.remove_inner();
+        }
+    }
+}
+
+struct LaunchLock {
+    _lock: AdvisoryLock,
 }
 
 fn main() {
@@ -74,32 +187,14 @@ fn main() {
         print_help();
         return;
     }
-    let detached_child = env::var_os("XYNOOS_TRAIN_DETACHED_CHILD").is_some();
     let parsed = parse_args(values);
-    let detached_root = parsed.as_ref().ok().map(|args| args.root.clone());
-    let mut code = match parsed {
-        Ok(args) => {
-            if detached_child && let Err(error) = register_process_pid(&args.root) {
-                eprintln!("xynoos-train: detached startup: {error}");
-                2
-            } else {
-                dispatch(args).err().unwrap_or(0)
-            }
-        }
+    let code = match parsed {
+        Ok(args) => dispatch(args).err().unwrap_or(0),
         Err(error) => {
             eprintln!("xynoos-train: {error}");
             2
         }
     };
-    if detached_child
-        && let Some(root) = detached_root
-        && let Err(error) = remove_process_pid(&root)
-    {
-        eprintln!("xynoos-train: detached cleanup: {error}");
-        if code == 0 {
-            code = 2;
-        }
-    }
     if code != 0 {
         std::process::exit(code);
     }
@@ -109,6 +204,16 @@ fn dispatch(args: Args) -> Result<(), i32> {
     if let Err(error) = validate_root(&args.root) {
         return Err(report(error));
     }
+    let detached_child = env::var_os("XYNOOS_TRAIN_DETACHED_CHILD").is_some();
+    if matches!(args.command, CommandKind::Run | CommandKind::Resume) {
+        ensure_artifact_root_outside_checkout(&args.root).map_err(report)?;
+    }
+    let _launch_lock =
+        if matches!(args.command, CommandKind::Run | CommandKind::Resume) && !detached_child {
+            Some(acquire_launch_lock(&args.root).map_err(report)?)
+        } else {
+            None
+        };
     match args.command {
         CommandKind::Stop => {
             if let Err(error) = read_sidecar(&args.root) {
@@ -128,6 +233,11 @@ fn dispatch(args: Args) -> Result<(), i32> {
                 .ok_or_else(|| report("--config is required for this command".to_owned()))?;
             let mut prepared = prepare(config_path).map_err(report)?;
             check_root_state(&args.root, &prepared, args.command).map_err(report)?;
+            if matches!(args.command, CommandKind::Run | CommandKind::Resume)
+                && live_run_lock(&args.root).map_err(report)?
+            {
+                return Err(report("another process owns this experiment lineage"));
+            }
             match args.command {
                 CommandKind::Validate => {
                     let result = validation_json(&prepared, &args.root);
@@ -135,12 +245,14 @@ fn dispatch(args: Args) -> Result<(), i32> {
                     Ok(())
                 }
                 CommandKind::Run | CommandKind::Resume => {
-                    if args.detached && env::var_os("XYNOOS_TRAIN_DETACHED_CHILD").is_none() {
+                    if args.detached && !detached_child {
                         let experiment_id = prepared.experiment_id.clone();
                         drop(prepared);
                         return detach(&args, config_path, &experiment_id);
                     }
-                    if args.command == CommandKind::Run {
+                    let initial_recovery =
+                        initial_sidecar_recovery(&args.root, &prepared).map_err(report)?;
+                    if args.command == CommandKind::Run && !initial_recovery {
                         write_sidecar(&args.root, &prepared).map_err(report)?;
                     } else {
                         verify_sidecar(&args.root, &prepared).map_err(report)?;
@@ -148,7 +260,7 @@ fn dispatch(args: Args) -> Result<(), i32> {
                     execute(
                         &args.root,
                         &mut prepared,
-                        args.command == CommandKind::Resume,
+                        args.command == CommandKind::Resume && !initial_recovery,
                     )
                     .map_err(report)
                 }
@@ -307,6 +419,7 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
         &[
             "schema_version",
             "experiment_id",
+            "repository_id",
             "source_revision",
             "source_kind",
             "dataset_root",
@@ -324,7 +437,7 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
             "seed",
         ],
     )?;
-    if u64_value(top, "schema_version")? != 1 {
+    if u64_value(top, "schema_version")? != 2 {
         return Err("unsupported configuration schema".into());
     }
     let experiment_id = string_value(top, "experiment_id")?.to_owned();
@@ -341,6 +454,15 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
     if source_revision.len() != 40 || !source_revision.bytes().all(is_lower_hex) {
         return Err("source_revision must be a lowercase 40-character commit SHA".into());
     }
+    let repository_id = string_value(top, "repository_id")?;
+    let source_identity = attest_source_checkout(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        env!("XYNOOS_BUILD_REPOSITORY_ID"),
+        env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        repository_id,
+        &source_revision,
+    )
+    .map_err(|error| format!("source identity: {error}"))?;
     if string_value(top, "source_kind")? != "manifest-v1-stream" {
         return Err("unsupported source_kind; only manifest-v1-stream is admitted".into());
     }
@@ -566,7 +688,7 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
         return Err("dataset identity does not match immutable configuration".into());
     }
     let identity = RunIdentity::from_standard_dataset(
-        source_revision.clone(),
+        source_identity.revision.clone(),
         true,
         &dataset,
         tokenizer_model,
@@ -603,7 +725,8 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
     Ok(Prepared {
         config_sha256: Sha256::digest(&raw_config).into(),
         experiment_id,
-        source_revision,
+        source_repository_id: source_identity.repository_id,
+        source_revision: source_identity.revision,
         dataset_id: dataset.manifest().dataset_id.clone(),
         identity,
         config,
@@ -653,14 +776,17 @@ fn execute(root: &Path, prepared: &mut Prepared, resume: bool) -> CliResult<()> 
             return Err(format!("trainer initialization failed: {detail}"));
         }
     };
+    let process_identity = ProcessIdentityGuard::register(root)?;
     remove_failure_report(root)?;
-    let report = trainer
-        .run(Some(&mut validation))
-        .map_err(|error| format!("training failed: {error:?}"))?;
+    let run_result = trainer.run(Some(&mut validation));
+    let cleanup_result = process_identity.remove();
+    let report = run_result.map_err(|error| format!("training failed: {error:?}"))?;
+    cleanup_result?;
     println!(
         "{}",
         json!({
             "experiment_id": prepared.experiment_id,
+            "repository_id": prepared.source_repository_id,
             "run_config_sha256": hex(&prepared.config.digest(&prepared.identity)),
             "stop_reason": format!("{:?}", report.stop_reason),
             "completed_updates": report.counters.completed_updates,
@@ -690,6 +816,7 @@ fn publish_startup_failure(root: &Path, prepared: &Prepared, detail: &str) -> Cl
         "status":"failed",
         "phase":"trainer_initialization",
         "experiment_id":prepared.experiment_id,
+        "repository_id":prepared.source_repository_id,
         "source_sha":prepared.source_revision,
         "config_sha256":hex(&prepared.config.digest(&prepared.identity)),
         "model_id":xynoos_training::MODEL_ID,
@@ -760,19 +887,7 @@ fn remove_failure_report(root: &Path) -> CliResult<()> {
 }
 
 fn detach(args: &Args, config: &Path, experiment_id: &str) -> Result<(), i32> {
-    let _launch_lock = acquire_launch_lock(&args.root).map_err(report)?;
-    match fs::symlink_metadata(args.root.join(PROCESS_PID)) {
-        Ok(_) => {
-            let pid = read_process_pid(&args.root).map_err(report)?;
-            if Path::new("/proc").join(pid.to_string()).exists() {
-                return Err(report("a detached training process is already active"));
-            }
-            fs::remove_file(args.root.join(PROCESS_PID))
-                .map_err(|error| report(format!("remove stale process identity: {error}")))?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(report(format!("process identity metadata: {error}"))),
-    }
+    clear_stale_process_identity(&args.root).map_err(report)?;
     let stdout = File::options()
         .write(true)
         .open("/dev/null")
@@ -791,6 +906,7 @@ fn detach(args: &Args, config: &Path, experiment_id: &str) -> Result<(), i32> {
         .write(true)
         .create(true)
         .truncate(true)
+        .mode(0o600)
         .open(&stderr_path)
         .map_err(|error| report(format!("runtime stderr: {error}")))?;
     let executable =
@@ -813,16 +929,26 @@ fn detach(args: &Args, config: &Path, experiment_id: &str) -> Result<(), i32> {
         .spawn()
         .map_err(|error| report(format!("detached launch: {error}")))?;
     let started = std::time::Instant::now();
-    let pid = loop {
-        if let Ok(pid) = read_process_pid(&args.root)
-            && Path::new("/proc").join(pid.to_string()).exists()
+    let identity = loop {
+        if let Ok(Some(identity)) = read_process_identity(&args.root)
+            && identity.is_same_process_alive().unwrap_or(false)
+            && live_run_lock(&args.root).unwrap_or(false)
         {
-            break pid;
+            break identity;
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| report(format!("detached startup status: {error}")))?
+        {
+            return Err(report(format!(
+                "detached child exited before acquiring lineage ownership: {status}"
+            )));
         }
         if started.elapsed() >= Duration::from_secs(5) {
             let _ = child.kill();
+            let _ = child.wait();
             return Err(report(
-                "detached child did not publish its process identity within five seconds",
+                "detached child did not acquire lineage ownership within five seconds",
             ));
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -832,46 +958,20 @@ fn detach(args: &Args, config: &Path, experiment_id: &str) -> Result<(), i32> {
     drop(child);
     println!(
         "{}",
-        json!({"status":"launched","pid":pid,"experiment_id":experiment_id,"artifact_root":args.root})
+        json!({"status":"launched","pid":identity.pid,"experiment_id":experiment_id,"artifact_root":args.root})
     );
     Ok(())
 }
 
 fn acquire_launch_lock(root: &Path) -> CliResult<LaunchLock> {
     let path = root.join(".launch.lock");
-    for _ in 0..2 {
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut file) => {
-                if let Err(error) =
-                    writeln!(file, "{}", std::process::id()).and_then(|()| file.sync_all())
-                {
-                    drop(file);
-                    let _ = fs::remove_file(&path);
-                    return Err(format!("write detached launch lock: {error}"));
-                }
-                return Ok(LaunchLock(path));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let metadata = fs::symlink_metadata(&path)
-                    .map_err(|error| format!("launch lock metadata: {error}"))?;
-                if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 32 {
-                    return Err("invalid detached launch lock".into());
-                }
-                let pid = fs::read_to_string(&path)
-                    .map_err(|error| format!("read launch lock: {error}"))?
-                    .trim()
-                    .parse::<u32>()
-                    .map_err(|_| "invalid detached launch PID")?;
-                if Path::new("/proc").join(pid.to_string()).exists() {
-                    return Err("another detached launch is in progress".into());
-                }
-                fs::remove_file(&path)
-                    .map_err(|error| format!("remove stale launch lock: {error}"))?;
-            }
-            Err(error) => return Err(format!("create detached launch lock: {error}")),
+    match AdvisoryLock::acquire(&path) {
+        Ok(lock) => Ok(LaunchLock { _lock: lock }),
+        Err(LockError::Contended) => Err("another run or detached launch owns admission".into()),
+        Err(LockError::RecoveryFailure(kind)) => {
+            Err(format!("detached launch lock recovery failed: {kind:?}"))
         }
     }
-    Err("could not acquire detached launch lock".into())
 }
 
 fn check_root_state(root: &Path, prepared: &Prepared, command: CommandKind) -> CliResult<()> {
@@ -881,14 +981,30 @@ fn check_root_state(root: &Path, prepared: &Prepared, command: CommandKind) -> C
         }
         return Ok(());
     }
+    if matches!(command, CommandKind::Run | CommandKind::Resume) {
+        recover_sidecar_staging(root)?;
+    }
     if command == CommandKind::Run {
+        if sidecar_exists(root)? {
+            if initial_sidecar_recovery(root, prepared)? {
+                return Ok(());
+            }
+            return Err("fresh run cannot reuse an initialized artifact root".into());
+        }
         for entry in fs::read_dir(root).map_err(|error| format!("artifact root: {error}"))? {
             let entry = entry.map_err(|error| format!("artifact root entry: {error}"))?;
+            if matches!(
+                entry.file_name().to_str(),
+                Some(".launch.lock" | ".run.lock")
+            ) && entry
+                .file_type()
+                .map_err(|error| format!("artifact entry type: {error}"))?
+                .is_file()
+            {
+                continue;
+            }
             if env::var_os("XYNOOS_TRAIN_DETACHED_CHILD").is_some()
-                && matches!(
-                    entry.file_name().to_str(),
-                    Some("process.stderr" | PROCESS_PID | ".launch.lock")
-                )
+                && entry.file_name() == "process.stderr"
                 && entry
                     .file_type()
                     .map_err(|error| format!("artifact entry type: {error}"))?
@@ -906,70 +1022,207 @@ fn check_root_state(root: &Path, prepared: &Prepared, command: CommandKind) -> C
     verify_sidecar(root, prepared)
 }
 
-fn register_process_pid(root: &Path) -> CliResult<()> {
-    validate_root(root).map_err(|error| error.to_string())?;
-    let path = root.join(PROCESS_PID);
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
-            let previous = read_process_pid(root)?;
-            if Path::new("/proc").join(previous.to_string()).exists() {
-                return Err("another detached process is already registered".into());
-            }
-            fs::remove_file(&path)
-                .map_err(|error| format!("remove stale process identity: {error}"))?;
-        }
-        Ok(_) => return Err("process identity path is not a regular file".into()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("process identity metadata: {error}")),
+fn initial_sidecar_recovery(root: &Path, prepared: &Prepared) -> CliResult<bool> {
+    if !sidecar_exists(root)? {
+        return Ok(false);
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|error| format!("create process identity: {error}"))?;
-    if let Err(error) = writeln!(file, "{}", std::process::id()).and_then(|()| file.sync_all()) {
-        drop(file);
-        let _ = fs::remove_file(&path);
-        return Err(format!("write process identity: {error}"));
+    verify_sidecar(root, prepared)?;
+    for name in [
+        "run.journal",
+        "checkpoint.xyckpt",
+        "metrics.jsonl",
+        "handoff.json",
+        "final-report.json",
+        PROCESS_PID,
+    ] {
+        if regular_file_exists(root, name)? {
+            return Ok(false);
+        }
+    }
+    for entry in fs::read_dir(root).map_err(|error| format!("artifact root: {error}"))? {
+        let entry = entry.map_err(|error| format!("artifact root entry: {error}"))?;
+        if !matches!(
+            entry.file_name().to_str(),
+            Some(SIDECAR | ".launch.lock" | ".run.lock" | "process.stderr" | "failure-report.json")
+        ) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn regular_file_exists(root: &Path, name: &str) -> CliResult<bool> {
+    match fs::symlink_metadata(root.join(name)) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => Ok(true),
+        Ok(_) => Err(format!("artifact path {name} is not a regular file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("artifact metadata for {name}: {error}")),
+    }
+}
+
+fn ensure_artifact_root_outside_checkout(root: &Path) -> CliResult<()> {
+    let artifact_root = root
+        .canonicalize()
+        .map_err(|error| format!("artifact root canonicalization: {error}"))?;
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|error| format!("source checkout lookup: {error}"))?;
+    if !output.status.success() {
+        return Err("could not identify source checkout for artifact placement".into());
+    }
+    let checkout = PathBuf::from(
+        String::from_utf8(output.stdout)
+            .map_err(|_| "source checkout path is not valid UTF-8")?
+            .trim(),
+    )
+    .canonicalize()
+    .map_err(|error| format!("source checkout canonicalization: {error}"))?;
+    if artifact_root.starts_with(checkout) {
+        return Err("artifact root must be outside the source checkout".into());
     }
     Ok(())
 }
 
-fn read_process_pid(root: &Path) -> CliResult<u32> {
-    let path = root.join(PROCESS_PID);
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|error| format!("process identity metadata: {error}"))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 32 {
-        return Err("invalid process identity file".into());
-    }
-    fs::read_to_string(path)
-        .map_err(|error| format!("read process identity: {error}"))?
-        .trim()
-        .parse()
-        .map_err(|_| "invalid process identity PID".into())
+fn process_start_time(pid: u32) -> CliResult<u64> {
+    let stat_path = format!("/proc/{pid}/stat");
+    let stat = fs::read_to_string(&stat_path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "process not found".to_owned()
+        } else {
+            format!("read process identity: {error}")
+        }
+    })?;
+    let (_, fields) = stat
+        .rsplit_once(") ")
+        .ok_or("invalid Linux process stat record")?;
+    fields
+        .split_whitespace()
+        .nth(19)
+        .ok_or_else(|| "Linux process stat is missing start time".to_owned())?
+        .parse::<u64>()
+        .map_err(|_| "invalid Linux process start time".into())
 }
 
-fn remove_process_pid(root: &Path) -> CliResult<()> {
-    let path = root.join(PROCESS_PID);
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
-            if read_process_pid(root)? == std::process::id() {
-                fs::remove_file(path)
-                    .map_err(|error| format!("remove process identity: {error}"))?;
-            }
-            Ok(())
+fn process_state(pid: u32) -> CliResult<String> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "process not found".to_owned()
+        } else {
+            format!("read process identity: {error}")
         }
-        Ok(_) => Err("process identity path is not a regular file".into()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("process identity metadata: {error}")),
+    })?;
+    let (_, fields) = stat
+        .rsplit_once(") ")
+        .ok_or("invalid Linux process stat record")?;
+    fields
+        .split_whitespace()
+        .next()
+        .map(str::to_owned)
+        .ok_or_else(|| "Linux process stat is missing state".into())
+}
+
+fn read_boot_id() -> CliResult<String> {
+    let value = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map_err(|error| format!("read Linux boot identity: {error}"))?
+        .trim()
+        .to_owned();
+    if !is_valid_boot_id(&value) {
+        return Err("invalid Linux boot identity".into());
     }
+    Ok(value)
+}
+
+fn is_valid_boot_id(value: &str) -> bool {
+    value.len() == 36
+        && value.chars().enumerate().all(|(index, character)| {
+            if [8, 13, 18, 23].contains(&index) {
+                character == '-'
+            } else {
+                character.is_ascii_hexdigit()
+            }
+        })
+}
+
+fn read_process_identity(root: &Path) -> CliResult<Option<ProcessIdentity>> {
+    let path = root.join(PROCESS_PID);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("process identity metadata: {error}")),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 256 {
+        return Err("invalid process identity file".into());
+    }
+    let text =
+        fs::read_to_string(path).map_err(|error| format!("read process identity: {error}"))?;
+    ProcessIdentity::parse(&text).map(Some)
+}
+
+fn write_process_identity(root: &Path, identity: &ProcessIdentity) -> CliResult<()> {
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let target = root.join(PROCESS_PID);
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {}
+        Ok(_) => return Err("process identity target is not a regular file".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("process identity target metadata: {error}")),
+    }
+    let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+    let temp = root.join(format!(
+        ".process-identity-{}-{serial}.tmp",
+        std::process::id()
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|error| format!("process identity staging file: {error}"))?;
+    let result = (|| {
+        file.write_all(identity.encode().as_bytes())
+            .map_err(|error| format!("write process identity: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("sync process identity: {error}"))?;
+        fs::rename(&temp, &target).map_err(|error| format!("publish process identity: {error}"))?;
+        sync_directory(root, "process identity publication")
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn sync_directory(root: &Path, operation: &str) -> CliResult<()> {
+    File::open(root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("sync directory after {operation}: {error}"))
+}
+
+fn clear_stale_process_identity(root: &Path) -> CliResult<()> {
+    if live_run_lock(root)? {
+        return Err("another process owns this experiment lineage".into());
+    }
+    let Some(previous) = read_process_identity(root)? else {
+        return Ok(());
+    };
+    if previous.is_same_process_alive()? {
+        return Err("live process identity exists without the journal ownership lock".into());
+    }
+    fs::remove_file(root.join(PROCESS_PID))
+        .map_err(|error| format!("remove stale process identity: {error}"))?;
+    sync_directory(root, "stale process identity cleanup")
 }
 
 fn validation_json(prepared: &Prepared, root: &Path) -> Value {
     json!({
         "status":"valid",
         "experiment_id":prepared.experiment_id,
+        "repository_id":prepared.source_repository_id,
         "source_revision":prepared.source_revision,
+        "training_implementation_revision":prepared.source_revision,
         "model_id":xynoos_training::MODEL_ID,
         "parameters":914400,
         "tensors":74,
@@ -997,36 +1250,121 @@ fn validation_json(prepared: &Prepared, root: &Path) -> Value {
 }
 
 fn write_sidecar(root: &Path, prepared: &Prepared) -> CliResult<()> {
-    let path = root.join(SIDECAR);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|error| format!("experiment identity publication: {error}"))?;
     let value = json!({
-        "schema_version":1,
+        "schema_version":2,
         "experiment_id":prepared.experiment_id,
+        "repository_id":prepared.source_repository_id,
         "source_revision":prepared.source_revision,
         "dataset_id":prepared.dataset_id,
         "configuration_file_sha256":hex(&prepared.config_sha256),
         "run_config_sha256":hex(&prepared.config.digest(&prepared.identity)),
     });
-    serde_json::to_writer(&mut file, &value)
-        .map_err(|error| format!("experiment identity write: {error}"))?;
-    file.write_all(b"\n")
-        .map_err(|error| format!("experiment identity write: {error}"))?;
-    file.sync_all()
-        .map_err(|error| format!("experiment identity sync: {error}"))?;
-    File::open(root)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| format!("experiment identity directory sync: {error}"))?;
+    let mut bytes = serde_json::to_vec(&value)
+        .map_err(|error| format!("serialize experiment identity: {error}"))?;
+    bytes.push(b'\n');
+    publish_initial_sidecar(root, &bytes, |_| Ok(()))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidecarBoundary {
+    BeforeStaging,
+    AfterStaging,
+    AfterWrite,
+    AfterFileSync,
+    AfterPublish,
+    BeforePublishDirectorySync,
+    AfterPublishDirectorySync,
+    AfterTemporaryRemoval,
+    BeforeCleanupDirectorySync,
+    AfterCleanupDirectorySync,
+}
+
+fn publish_initial_sidecar(
+    root: &Path,
+    bytes: &[u8],
+    mut inject: impl FnMut(SidecarBoundary) -> CliResult<()>,
+) -> CliResult<()> {
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let target = root.join(SIDECAR);
+    let temp = root.join(format!(
+        ".experiment.json-init-{}-{}.tmp",
+        std::process::id(),
+        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut published = false;
+    let result = (|| {
+        inject(SidecarBoundary::BeforeStaging)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)
+            .map_err(|error| format!("experiment identity staging: {error}"))?;
+        inject(SidecarBoundary::AfterStaging)?;
+        file.write_all(bytes)
+            .map_err(|error| format!("experiment identity write: {error}"))?;
+        inject(SidecarBoundary::AfterWrite)?;
+        file.sync_all()
+            .map_err(|error| format!("experiment identity file sync: {error}"))?;
+        inject(SidecarBoundary::AfterFileSync)?;
+        fs::hard_link(&temp, &target)
+            .map_err(|error| format!("experiment identity atomic publication: {error}"))?;
+        published = true;
+        inject(SidecarBoundary::AfterPublish)?;
+        inject(SidecarBoundary::BeforePublishDirectorySync)?;
+        sync_directory(root, "experiment identity publication")?;
+        inject(SidecarBoundary::AfterPublishDirectorySync)?;
+        fs::remove_file(&temp)
+            .map_err(|error| format!("experiment identity staging cleanup: {error}"))?;
+        inject(SidecarBoundary::AfterTemporaryRemoval)?;
+        inject(SidecarBoundary::BeforeCleanupDirectorySync)?;
+        sync_directory(root, "experiment identity staging cleanup")?;
+        inject(SidecarBoundary::AfterCleanupDirectorySync)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        if fs::remove_file(&temp).is_ok() {
+            let _ = sync_directory(root, "failed experiment identity staging cleanup");
+        }
+        if published {
+            // The canonical sidecar is complete. Keep it so a restart can
+            // verify and resume the initial, pre-journal state.
+        }
+    }
+    result
+}
+
+fn recover_sidecar_staging(root: &Path) -> CliResult<()> {
+    let mut removed = false;
+    for entry in fs::read_dir(root).map_err(|error| format!("artifact root: {error}"))? {
+        let entry = entry.map_err(|error| format!("artifact root entry: {error}"))?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with(".experiment.json-init-") || !name.ends_with(".tmp") {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path())
+            .map_err(|error| format!("sidecar staging metadata: {error}"))?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err("invalid experiment identity staging entry".into());
+        }
+        fs::remove_file(entry.path())
+            .map_err(|error| format!("remove interrupted sidecar staging: {error}"))?;
+        removed = true;
+    }
+    if removed {
+        sync_directory(root, "interrupted sidecar staging recovery")?;
+    }
     Ok(())
 }
 
 fn verify_sidecar(root: &Path, prepared: &Prepared) -> CliResult<()> {
     let value = read_sidecar(root)?;
-    if value["schema_version"] != 1
+    if value["schema_version"] != 2
         || value["experiment_id"] != prepared.experiment_id
+        || value["repository_id"] != prepared.source_repository_id
         || value["source_revision"] != prepared.source_revision
         || value["dataset_id"] != prepared.dataset_id
         || value["configuration_file_sha256"] != hex(&prepared.config_sha256)
@@ -1051,21 +1389,11 @@ fn read_sidecar(root: &Path) -> CliResult<Value> {
 }
 
 fn live_run_lock(root: &Path) -> CliResult<bool> {
-    let path = root.join(".run.lock");
-    let metadata = match fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(format!("run lock metadata: {error}")),
-    };
-    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 32 {
-        return Err("invalid run lock".into());
+    match AdvisoryLock::is_held(&root.join(".run.lock")) {
+        Ok(held) => Ok(held),
+        Err(LockError::Contended) => Ok(true),
+        Err(LockError::RecoveryFailure(kind)) => Err(format!("run lock recovery failed: {kind:?}")),
     }
-    let pid = fs::read_to_string(&path)
-        .map_err(|error| format!("read run lock: {error}"))?
-        .trim()
-        .parse::<u32>()
-        .map_err(|_| "invalid run lock PID")?;
-    Ok(Path::new("/proc").join(pid.to_string()).exists())
 }
 
 fn sidecar_exists(root: &Path) -> CliResult<bool> {
@@ -1253,4 +1581,119 @@ fn print_help() {
     eprintln!(
         "xynoos-train <validate|run|resume|status|stop|inspect-checkpoint> --artifact-root ABSOLUTE_DIR [--config IMMUTABLE.json] [--detach]"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(label: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = env::temp_dir().join(format!(
+                "task006-cli-{label}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_entries(root: &Path) -> Vec<PathBuf> {
+        fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect()
+    }
+
+    #[test]
+    fn sidecar_failures_before_publication_clean_staging() {
+        for boundary in [
+            SidecarBoundary::BeforeStaging,
+            SidecarBoundary::AfterStaging,
+            SidecarBoundary::AfterWrite,
+            SidecarBoundary::AfterFileSync,
+        ] {
+            let scratch = Scratch::new("sidecar-prepublish");
+            let bytes = b"{\"schema_version\":2}\n";
+            let result = publish_initial_sidecar(&scratch.0, bytes, |current| {
+                if current == boundary {
+                    Err("injected sidecar failure".into())
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(result.is_err(), "boundary {boundary:?} did not fail");
+            assert!(!scratch.0.join(SIDECAR).exists());
+            assert!(temp_entries(&scratch.0).is_empty());
+            recover_sidecar_staging(&scratch.0).unwrap();
+            assert!(temp_entries(&scratch.0).is_empty());
+        }
+    }
+
+    #[test]
+    fn sidecar_failures_after_atomic_publish_leave_a_complete_recoverable_identity() {
+        for boundary in [
+            SidecarBoundary::AfterPublish,
+            SidecarBoundary::BeforePublishDirectorySync,
+            SidecarBoundary::AfterPublishDirectorySync,
+            SidecarBoundary::AfterTemporaryRemoval,
+            SidecarBoundary::BeforeCleanupDirectorySync,
+            SidecarBoundary::AfterCleanupDirectorySync,
+        ] {
+            let scratch = Scratch::new("sidecar-postpublish");
+            let bytes = b"{\"schema_version\":2,\"experiment_id\":\"stable\"}\n";
+            let result = publish_initial_sidecar(&scratch.0, bytes, |current| {
+                if current == boundary {
+                    Err("injected sidecar failure".into())
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(result.is_err(), "boundary {boundary:?} did not fail");
+            assert_eq!(fs::read(scratch.0.join(SIDECAR)).unwrap(), bytes);
+            assert!(temp_entries(&scratch.0).is_empty());
+            assert!(read_sidecar(&scratch.0).unwrap()["experiment_id"] == "stable");
+        }
+    }
+
+    #[test]
+    fn sidecar_publication_preserves_existing_artifacts_and_recovers_orphan_staging() {
+        let scratch = Scratch::new("sidecar-existing");
+        let target = scratch.0.join(SIDECAR);
+        fs::write(&target, b"existing artifact\n").unwrap();
+        assert!(publish_initial_sidecar(&scratch.0, b"new artifact\n", |_| Ok(())).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"existing artifact\n");
+
+        fs::remove_file(&target).unwrap();
+        let orphan = scratch.0.join(".experiment.json-init-999-1.tmp");
+        fs::write(&orphan, b"incomplete staging data").unwrap();
+        recover_sidecar_staging(&scratch.0).unwrap();
+        assert!(!orphan.exists());
+        publish_initial_sidecar(&scratch.0, b"{\"schema_version\":2}\n", |_| Ok(())).unwrap();
+        assert_eq!(fs::read(target).unwrap(), b"{\"schema_version\":2}\n");
+    }
+
+    #[test]
+    fn process_identity_detects_pid_reuse_by_start_time_and_boot_id() {
+        let current = ProcessIdentity::current().unwrap();
+        let encoded = current.encode();
+        assert_eq!(ProcessIdentity::parse(&encoded).unwrap(), current);
+        assert!(current.is_same_process_alive().unwrap());
+
+        let reused = ProcessIdentity {
+            start_time_ticks: current.start_time_ticks + 1,
+            ..current
+        };
+        assert!(!reused.is_same_process_alive().unwrap());
+    }
 }

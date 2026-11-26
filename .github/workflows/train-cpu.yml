@@ -66,6 +66,10 @@ jobs:
           if workspace not in config_path.parents or not config_path.is_file() or config_path.stat().st_size > 16384:
               raise SystemExit("configuration must be a regular repository file no larger than 16 KiB")
           config = json.loads(config_path.read_text(encoding="utf-8"))
+          if config.get("schema_version") != 2:
+              raise SystemExit("training configuration must use schema version 2")
+          if config.get("repository_id") != "samuelindra123/xynoos-cyber-model":
+              raise SystemExit("configuration repository_id does not match this repository")
           if config.get("source_revision") != os.environ["EXPECTED_SHA"]:
               raise SystemExit("configuration source_revision does not match the dispatched commit")
           if subprocess.run(["git", "status", "--porcelain"], check=True, capture_output=True, text=True).stdout:

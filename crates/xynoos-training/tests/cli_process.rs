@@ -9,6 +9,7 @@ use std::{
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use xynoos_training::AdvisoryLock;
 
 const DATA_FIXTURE: &str = include_str!("../../xynoos-data/tests/fixtures/task004.json");
 const EXE: &str = env!("CARGO_BIN_EXE_xynoos-train");
@@ -76,8 +77,9 @@ fn setup(base: &Path, experiment_id: &str) -> (PathBuf, PathBuf) {
     let tokenizer_sha = hex(&Sha256::digest(artifact.as_bytes()));
     let manifest: Value = serde_json::from_str(fixture["manifest"].as_str().unwrap()).unwrap();
     let config = json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": experiment_id,
+        "repository_id": "samuelindra123/xynoos-cyber-model",
         "source_revision": source_head(),
         "source_kind": "manifest-v1-stream",
         "dataset_root": "dataset",
@@ -145,10 +147,20 @@ fn pid_alive(pid: u32) -> bool {
     Path::new("/proc").join(pid.to_string()).exists()
 }
 
+fn run_lock_held(root: &Path) -> bool {
+    AdvisoryLock::is_held(&root.join(".run.lock")).unwrap()
+}
+
 fn process_session(pid: u32) -> u32 {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
     let (_, fields) = stat.rsplit_once(") ").unwrap();
     fields.split_whitespace().nth(3).unwrap().parse().unwrap()
+}
+
+fn process_start_time(pid: u32) -> u64 {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    let (_, fields) = stat.rsplit_once(") ").unwrap();
+    fields.split_whitespace().nth(19).unwrap().parse().unwrap()
 }
 
 fn wait_for_update(root: &Path) {
@@ -244,7 +256,7 @@ fn stop_and_wait(config: &Path, root: &Path, pid: u32) {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
             .is_some_and(|report| report["stop_reason"] == "requested")
-            && !root.join(".run.lock").exists()
+            && !run_lock_held(root)
     });
     wait_for(Duration::from_secs(5), || !pid_alive(pid));
     let report: Value =
@@ -314,7 +326,7 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
                         .unwrap_or(0)
                         > previous_sequence
             })
-            && !root.join(".run.lock").exists()
+            && !run_lock_held(&root)
     });
     wait_for(Duration::from_secs(5), || !pid_alive(resumed_pid));
     drop(resumed_process);
@@ -340,8 +352,9 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
     assert!(crash_root.join("run.journal").is_file());
     assert!(
         crash_root.join(".run.lock").exists(),
-        "abrupt exit leaves a stale lock for PID-checked recovery"
+        "abrupt exit keeps the persistent lock inode for kernel-backed recovery"
     );
+    assert!(!run_lock_held(&crash_root));
     let interrupted = json_stdout(&cli("status", Some(&crash_config), &crash_root, &[]));
     assert_eq!(interrupted["status"], "interrupted");
     assert!(
@@ -351,6 +364,23 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
             > 0
     );
     assert!(cli("stop", None, &crash_root, &[]).status.success());
+
+    // Reuse a currently live PID with a deliberately different process start
+    // time. Recovery must distinguish the process incarnation, then launch.
+    let reused_pid = std::process::id();
+    let start_time = process_start_time(reused_pid);
+    let boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .unwrap()
+        .trim()
+        .to_owned();
+    fs::write(
+        crash_root.join("process.pid"),
+        format!(
+            "XYNOOS-PROCESS-1\t{reused_pid}\t{}\t{boot_id}\n",
+            start_time + 1
+        ),
+    )
+    .unwrap();
 
     let resumed = json_stdout(&cli(
         "resume",
@@ -365,7 +395,7 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
             .is_some_and(|report| report["stop_reason"] == "requested")
-            && !crash_root.join(".run.lock").exists()
+            && !run_lock_held(&crash_root)
     });
     wait_for(Duration::from_secs(5), || !pid_alive(recovered_pid));
     let after = json_stdout(&cli("status", Some(&crash_config), &crash_root, &[]));
@@ -400,6 +430,49 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
         checkpoint_before
     );
     drop((crash_guard, recovered_guard));
+}
+
+#[test]
+fn concurrent_detached_launch_attempts_start_at_most_one_lineage_owner() {
+    let scratch = Scratch::new();
+    let (config, _) = setup(&scratch.0, "task006r-concurrent-launch");
+    let root = scratch.0.join("concurrent-launch-root");
+    fs::create_dir(&root).unwrap();
+
+    let mut launchers = Vec::new();
+    for _ in 0..4 {
+        launchers.push(
+            Command::new(EXE)
+                .arg("run")
+                .arg("--config")
+                .arg(&config)
+                .arg("--artifact-root")
+                .arg(&root)
+                .arg("--detach")
+                .spawn()
+                .unwrap(),
+        );
+    }
+    let mut launched = Vec::new();
+    let mut rejected = 0;
+    for launcher in launchers {
+        let output = launcher.wait_with_output().unwrap();
+        if output.status.success() {
+            launched.push(json_stdout(&output));
+        } else {
+            rejected += 1;
+            assert_eq!(output.status.code(), Some(2));
+        }
+    }
+    assert_eq!(launched.len(), 1);
+    assert_eq!(rejected, 3);
+    let owner_pid = process_id(&launched[0]);
+    let owner_guard = ProcessGuard(owner_pid);
+    assert!(run_lock_held(&root));
+    assert!(cli("stop", None, &root, &[]).status.success());
+    wait_for(Duration::from_secs(30), || !run_lock_held(&root));
+    wait_for(Duration::from_secs(5), || !pid_alive(owner_pid));
+    drop(owner_guard);
 }
 
 #[test]

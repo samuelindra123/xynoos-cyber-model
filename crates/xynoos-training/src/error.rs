@@ -25,6 +25,10 @@ pub enum TrainingError {
     /// A required runtime-owned artifact could not be published.
     RuntimeArtifact(&'static str),
     PublicationDurabilityUncertain,
+    /// Another process currently owns this experiment lineage.
+    RunLockContended,
+    /// The OS lock could not be opened or recovered safely.
+    RunLockRecoveryFailure(io::ErrorKind),
     StopRequested,
     RuntimeLimit {
         limit: Duration,
