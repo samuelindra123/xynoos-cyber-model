@@ -1,7 +1,21 @@
 {
   "all_answers_within_first_32_target_positions": true,
   "answer_bpe_position_max": 31,
+  "answer_end_bpe_boundary_aligned_count": 48,
+  "answer_end_bpe_position_max": 31,
+  "answer_only_boundary_ready": false,
   "answer_prompt_bpe_position_max": 29,
+  "answer_start_bpe_boundary_aligned_count": 40,
+  "answer_start_bpe_boundary_unaligned_document_ids": [
+    "oa2-011",
+    "oa2-012",
+    "oa2-013",
+    "oa2-014",
+    "oa2-030",
+    "oa2-031",
+    "oa2-041",
+    "oa2-042"
+  ],
   "answers_appear_once_after_their_inputs": true,
   "assessment": "authored-synthetic-compositional-control-only",
   "bpe_payload_token_count_max": 49,
@@ -190,6 +204,7 @@
     "23 cross-split pairs exceed the fixed 0.82 character-trigram similarity threshold because templates repeat; this remains a material template-leakage risk.",
     "Character-trigram similarity misses semantic leakage; the task index is needed to detect input-combination overlap.",
     "The tokenizer is fit only on the train split, but shared task vocabulary across splits is intentional and does not imply independent lexical domains.",
+    "8 answer starts fall inside a BPE token; the evaluator reports whole-sequence loss rather than answer-only loss.",
     "A separate human quality review remains required before experiment admission."
   ],
   "manifest_sha256": "b3574cbcd769359ae4fc7ec4ff3f4df4f8fc5351cb004944826f87f9c38cfac1",

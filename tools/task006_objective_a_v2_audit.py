@@ -88,6 +88,33 @@ def encode(data, merges):
         tokens = replace_pair(tokens, pair, 260 + ordered[pair])
 
 
+def token_expansions(merges):
+    expansions = {index: bytes([index]) for index in range(256)}
+    for index, (left, right, expansion_hex) in enumerate(merges):
+        token_id = 260 + index
+        expansion = bytes.fromhex(expansion_hex)
+        if expansion != expansions[left] + expansions[right]:
+            raise ValueError(f"invalid BPE expansion for token {token_id}")
+        expansions[token_id] = expansion
+    return expansions
+
+
+def byte_boundary_token_index(tokens, byte_offset, expansions):
+    """Return an exclusive token index only when a byte offset is a true BPE boundary."""
+    if byte_offset < 0:
+        return None
+    consumed = 0
+    if byte_offset == 0:
+        return 0
+    for index, token in enumerate(tokens, 1):
+        consumed += len(expansions[token])
+        if consumed == byte_offset:
+            return index
+        if consumed > byte_offset:
+            return None
+    return None
+
+
 def serialize_artifact(merges):
     specials = [(256, "BOS", "<|bos|>"), (257, "EOS", "<|eos|>"),
                 (258, "PAD", "<|pad|>"), (259, "DOC_SEP", "<|doc_sep|>")]
@@ -102,7 +129,21 @@ def serialize_artifact(merges):
     return body + b"sha256\t" + sha(body).encode("ascii") + b"\n"
 
 
+def check_boundary_oracle():
+    expansions = {97: b"a", 98: b"b", 260: b"ab"}
+    tokens = [260, 97]
+    if byte_boundary_token_index(tokens, 0, expansions) != 0:
+        raise ValueError("BPE boundary oracle failed at the start")
+    if byte_boundary_token_index(tokens, 1, expansions) is not None:
+        raise ValueError("BPE boundary oracle accepted an interior byte offset")
+    if byte_boundary_token_index(tokens, 2, expansions) != 1:
+        raise ValueError("BPE boundary oracle failed at a merged-token end")
+    if byte_boundary_token_index(tokens, 3, expansions) != 2:
+        raise ValueError("BPE boundary oracle failed at the payload end")
+
+
 def build():
+    check_boundary_oracle()
     manifest_bytes = (DATASET / "manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
     source_bytes = (DATASET / "sources.jsonl").read_bytes()
@@ -217,6 +258,10 @@ def build():
     token_counts = {}
     answer_prefix_counts = {}
     answer_start_counts = {}
+    answer_start_boundary_rows = []
+    answer_start_unaligned_rows = []
+    answer_end_boundary_positions = {}
+    expansions = token_expansions(merges)
     for row in documents:
         task = families[row["document_id"]]
         data = payloads[row["document_id"]]
@@ -258,6 +303,17 @@ def build():
             raise ValueError(f"task inputs are absent from the answer prompt: {row['document_id']}")
         if task["target"] != expected_target:
             raise ValueError(f"answer does not match independently recomputed task: {row['document_id']}")
+        answer_start_boundary = byte_boundary_token_index(tokens, target_start, expansions)
+        answer_end_boundary = byte_boundary_token_index(tokens, target_end, expansions)
+        if answer_end_boundary is None:
+            raise ValueError(f"answer end falls inside a BPE token: {row['document_id']}")
+        if answer_end_boundary != len(encode(data[:target_end], merges)):
+            raise ValueError(f"answer end position differs from independently encoded prefix: {row['document_id']}")
+        answer_end_boundary_positions[row["document_id"]] = answer_end_boundary
+        if answer_start_boundary is None:
+            answer_start_unaligned_rows.append(row["document_id"])
+        else:
+            answer_start_boundary_rows.append(row["document_id"])
         answer_start_counts[row["document_id"]] = len(encode(prompt, merges))
         prefix = data[: task["target_end_byte_offset"]]
         answer_prefix_counts[row["document_id"]] = len(encode(prefix, merges))
@@ -270,6 +326,8 @@ def build():
         raise ValueError("a document does not create exactly one complete 32-target window")
     if any(value > 31 for value in answer_prefix_counts.values()):
         raise ValueError("an answer falls outside the first supervised window")
+    if any(value > 31 for value in answer_end_boundary_positions.values()):
+        raise ValueError("an answer end falls outside the first 32 supervised targets")
 
     split_counts = Counter(row["split"] for row in documents)
     family_counts = Counter((row["split"], families[row["document_id"]]["family"]) for row in documents)
@@ -332,6 +390,11 @@ def build():
         "bpe_payload_token_count_max": max(token_counts.values()),
         "answer_bpe_position_max": max(answer_prefix_counts.values()),
         "answer_prompt_bpe_position_max": max(answer_start_counts.values()),
+        "answer_start_bpe_boundary_aligned_count": len(answer_start_boundary_rows),
+        "answer_start_bpe_boundary_unaligned_document_ids": answer_start_unaligned_rows,
+        "answer_end_bpe_boundary_aligned_count": len(answer_end_boundary_positions),
+        "answer_end_bpe_position_max": max(answer_end_boundary_positions.values()),
+        "answer_only_boundary_ready": not answer_start_unaligned_rows,
         "answers_appear_once_after_their_inputs": True,
         "all_answers_within_first_32_target_positions": True,
         "assessment": "authored-synthetic-compositional-control-only",
@@ -342,6 +405,7 @@ def build():
             f"{len(cross_near_duplicates)} cross-split pairs exceed the fixed {THRESHOLD:.2f} character-trigram similarity threshold because templates repeat; this remains a material template-leakage risk.",
             "Character-trigram similarity misses semantic leakage; the task index is needed to detect input-combination overlap.",
             "The tokenizer is fit only on the train split, but shared task vocabulary across splits is intentional and does not imply independent lexical domains.",
+            f"{len(answer_start_unaligned_rows)} answer starts fall inside a BPE token; the evaluator reports whole-sequence loss rather than answer-only loss.",
             "A separate human quality review remains required before experiment admission.",
         ],
     }
