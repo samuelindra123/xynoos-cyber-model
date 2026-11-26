@@ -141,8 +141,12 @@ mod tests {
                 Some(SOURCE_REPOSITORY_ID)
             );
         }
+        assert_eq!(
+            normalize_github_remote("https://github.com/someone-else/xynoos-cyber-model.git")
+                .as_deref(),
+            Some("someone-else/xynoos-cyber-model")
+        );
         for remote in [
-            "https://github.com/someone-else/xynoos-cyber-model.git",
             "https://github.com/samuelindra123/xynoos-cyber-model/tree/main",
             "https://example.test/samuelindra123/xynoos-cyber-model.git",
         ] {

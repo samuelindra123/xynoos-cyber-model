@@ -19,7 +19,7 @@ xynoos-train inspect-checkpoint --config CONFIG.json --artifact-root ABSOLUTE_DI
 
 `run --detach` and `resume --detach` spawn the current executable through `setsid`, direct stdin/stdout away from the controller and append stderr to `process.stderr`. The controller holds `.launch.lock` while it starts the child. The child publishes `process.pid` only after acquiring the lineage journal lock and completing trainer initialization; the controller verifies the process incarnation and observes the held kernel lock before returning. The process identity record contains PID, Linux `/proc` start-time ticks and boot ID, so a reused PID is not treated as the same process. The runtime removes only its own identity record on orderly exit. The child owns subsequent logs, checkpoints, stop checks, failure reports and cleanup. Tests verify that the detached child has its own Linux session and continues after its launching controller exits; this is not a Colab CLI, SSH, remote-filesystem, or provider-runtime persistence claim.
 
-## Immutable JSON configuration schema v1
+## Immutable JSON configuration schema v2
 
 The UTF-8 JSON file is limited to 16 KiB. Every listed key is required; there are no unlimited defaults. Unknown keys are rejected at every object level. Relative data paths resolve against the config file; absolute paths are accepted by the local CLI. All paths reject parent traversal and symlink components. The manual GitHub workflow requires relative data paths below the configuration directory.
 

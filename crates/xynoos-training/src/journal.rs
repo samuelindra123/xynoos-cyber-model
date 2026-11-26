@@ -579,7 +579,7 @@ mod tests {
         assert_eq!(
             RunJournal::open_existing(&root, [0x71; 32], CheckpointCounters::default(), limits())
                 .unwrap_err(),
-            TrainingError::InvalidConfiguration
+            TrainingError::RunLockContended
         );
         drop(live);
         fs::remove_dir_all(root).unwrap();
