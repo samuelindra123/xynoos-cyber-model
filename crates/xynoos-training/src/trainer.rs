@@ -2859,6 +2859,19 @@ mod tests {
         assert!(metrics.contains("\"test_access\":false"));
         assert!(!metrics.contains("\"test_access\":true"));
         assert!(root.join("checkpoint.xyckpt").is_file());
+        assert!(report.counters.cumulative_work <= 8_000_000_000);
+        println!(
+            "TASK006_D1_V3_TRAINER_SMOKE updates={} consumed_tokens={} supervised_tokens={} validation_tokens={} cumulative_work={} cumulative_runtime_ns={} owned_peak_bytes={} autograd_peak_bytes={} process_vm_hwm_bytes={:?}",
+            report.counters.completed_updates,
+            report.counters.committed_consumed_tokens,
+            report.counters.committed_supervised_tokens,
+            report.counters.validation_supervised_tokens,
+            report.counters.cumulative_work,
+            report.counters.cumulative_runtime_ns,
+            report.owned_memory_peak_bytes,
+            report.autograd_ledger_peak_bytes,
+            report.process_vm_hwm_bytes,
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
