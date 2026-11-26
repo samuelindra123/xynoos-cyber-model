@@ -16,6 +16,15 @@
 /models/**/*.ckpt
 /datasets/**
 !/datasets/README.md
+!/datasets/task006-objective-a-v2/
+!/datasets/task006-objective-a-v2/manifest.json
+!/datasets/task006-objective-a-v2/sources.jsonl
+!/datasets/task006-objective-a-v2/documents.jsonl
+!/datasets/task006-objective-a-v2/tokenizer-fit.jsonl
+!/datasets/task006-objective-a-v2/tokenizer.tsv
+!/datasets/task006-objective-a-v2/task-index.json
+!/datasets/task006-objective-a-v2/payload/
+!/datasets/task006-objective-a-v2/payload/oa2-*.txt
 /experiments/**/outputs/
 /benchmarks/results/
 *.model

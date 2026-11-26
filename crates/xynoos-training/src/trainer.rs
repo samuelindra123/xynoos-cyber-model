@@ -1338,8 +1338,8 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::io;
     use xynoos_autograd::{AdamWConfig, ResourceLimits};
-    use xynoos_data::Batch;
-    use xynoos_tokenizer::{TokenizerArtifact, TokenizerLimits};
+    use xynoos_data::{Batch, BatchConfig, DatasetLimits, ManifestValidator, Split, StreamConfig};
+    use xynoos_tokenizer::{Boundaries, TokenizerArtifact, TokenizerLimits};
 
     const DESIGN_HEAD: &str = "26777fa95383600c003ff094216d3d1c310b051c";
     const FIXTURE: &str = include_str!("../tests/fixtures/objective_a.json");
@@ -2039,6 +2039,117 @@ mod tests {
         println!("TASK006_D1_BASELINE train={}", train.to_json());
         println!("TASK006_D1_BASELINE validation={}", validation.to_json());
         println!("TASK006_D1_BASELINE test_access={}", test.to_json());
+    }
+
+    #[test]
+    fn objective_a_v2_manifest_baseline_covers_all_task_rows() {
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
+        let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig::per_document(32, 1),
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let train_order = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let validation_order = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            train_order,
+            validation_order,
+        )
+        .unwrap();
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            fitted.model(),
+            107,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let limits =
+            crate::EvaluationLimits::new(64, 2048, 8_000_000_000, 64 * 1024 * 1024, 32).unwrap();
+        let reports = [
+            crate::evaluate_standard_dataset_split(
+                &model,
+                &dataset,
+                &fitted,
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                Split::Train,
+                stream,
+                limits,
+            )
+            .unwrap(),
+            crate::evaluate_standard_dataset_split(
+                &model,
+                &dataset,
+                &fitted,
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                Split::Validation,
+                stream,
+                limits,
+            )
+            .unwrap(),
+            crate::evaluate_standard_dataset_split(
+                &model,
+                &dataset,
+                &fitted,
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                Split::Test,
+                stream,
+                limits,
+            )
+            .unwrap(),
+        ];
+        for (report, split, batches, targets) in [
+            (&reports[0], Split::Train, 24, 768),
+            (&reports[1], Split::Validation, 12, 384),
+            (&reports[2], Split::Test, 12, 384),
+        ] {
+            assert_eq!(report.split, split);
+            assert_eq!(report.batch_count, batches);
+            assert_eq!(report.supervised_tokens, targets);
+            assert!(report.coverage_complete);
+            assert!(report.all_evaluated_losses_finite);
+            assert!(report.mean_loss.unwrap().is_finite());
+        }
+        assert!(!reports[0].test_access && !reports[1].test_access);
+        assert!(reports[2].test_access);
+        assert_eq!(reports[0].model_parameter_count, 914_400);
+        assert_eq!(reports[0].model_state_sha256, reports[1].model_state_sha256);
+        assert_eq!(reports[1].model_state_sha256, reports[2].model_state_sha256);
+        for (label, report) in [
+            ("train", &reports[0]),
+            ("validation", &reports[1]),
+            ("locked_test_accessed", &reports[2]),
+        ] {
+            println!(
+                "TASK006_D1_OBJECTIVE_A_V2_BASELINE {label}={}",
+                report.to_json()
+            );
+        }
     }
 
     #[test]

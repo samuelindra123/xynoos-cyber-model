@@ -5,6 +5,14 @@ import re
 import subprocess
 
 MAX_FILE_BYTES = 256 * 1024
+OBJECTIVE_A_V2_FILES = {
+    "datasets/task006-objective-a-v2/manifest.json",
+    "datasets/task006-objective-a-v2/sources.jsonl",
+    "datasets/task006-objective-a-v2/documents.jsonl",
+    "datasets/task006-objective-a-v2/tokenizer-fit.jsonl",
+    "datasets/task006-objective-a-v2/tokenizer.tsv",
+    "datasets/task006-objective-a-v2/task-index.json",
+}
 ARTIFACT_EXTENSIONS = {
     ".a", ".bin", ".ckpt", ".csv", ".dylib", ".exe", ".gguf", ".log",
     ".model", ".npy", ".npz", ".o", ".parquet", ".prof", ".pt",
@@ -26,11 +34,15 @@ PRIVATE_PATTERNS = {
 
 
 def violations(path):
+    value = path.as_posix()
+    allowed_dataset = value in OBJECTIVE_A_V2_FILES or re.fullmatch(
+        r"datasets/task006-objective-a-v2/payload/oa2-[0-9]{3}\.txt", value
+    )
     if (
         any(part in {"target", "__pycache__", ".venv"} for part in path.parts)
         or path.name.startswith(("hardware-report", "system-info"))
         or (path.name.startswith(".env") and path.name != ".env.example")
-        or (path.parts[0] == "datasets" and path.as_posix() != "datasets/README.md")
+        or (path.parts[0] == "datasets" and value != "datasets/README.md" and not allowed_dataset)
         or path.suffix.lower() in ARTIFACT_EXTENSIONS
     ):
         yield "unexpected artifact path"

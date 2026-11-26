@@ -1,0 +1,239 @@
+{
+  "all_answers_within_first_32_target_positions": true,
+  "answer_bpe_position_max": 31,
+  "answer_prompt_bpe_position_max": 29,
+  "answers_appear_once_after_their_inputs": true,
+  "assessment": "authored-synthetic-compositional-control-only",
+  "bpe_payload_token_count_max": 49,
+  "bpe_payload_token_count_min": 34,
+  "cross_split_near_duplicate_pair_count": 23,
+  "cross_split_near_duplicate_pairs": [
+    {
+      "character_trigram_jaccard": 0.848101,
+      "left_document_id": "oa2-006",
+      "left_split": "train",
+      "right_document_id": "oa2-025",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.825581,
+      "left_document_id": "oa2-007",
+      "left_split": "train",
+      "right_document_id": "oa2-027",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.869048,
+      "left_document_id": "oa2-007",
+      "left_split": "train",
+      "right_document_id": "oa2-038",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.886364,
+      "left_document_id": "oa2-009",
+      "left_split": "train",
+      "right_document_id": "oa2-032",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.908046,
+      "left_document_id": "oa2-009",
+      "left_split": "train",
+      "right_document_id": "oa2-044",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.930233,
+      "left_document_id": "oa2-010",
+      "left_split": "train",
+      "right_document_id": "oa2-032",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.886364,
+      "left_document_id": "oa2-010",
+      "left_split": "train",
+      "right_document_id": "oa2-044",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.871795,
+      "left_document_id": "oa2-011",
+      "left_split": "train",
+      "right_document_id": "oa2-030",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.871795,
+      "left_document_id": "oa2-011",
+      "left_split": "train",
+      "right_document_id": "oa2-042",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.878049,
+      "left_document_id": "oa2-012",
+      "left_split": "train",
+      "right_document_id": "oa2-031",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.878049,
+      "left_document_id": "oa2-012",
+      "left_split": "train",
+      "right_document_id": "oa2-041",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.925,
+      "left_document_id": "oa2-013",
+      "left_split": "train",
+      "right_document_id": "oa2-031",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.901235,
+      "left_document_id": "oa2-013",
+      "left_split": "train",
+      "right_document_id": "oa2-041",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.878049,
+      "left_document_id": "oa2-014",
+      "left_split": "train",
+      "right_document_id": "oa2-031",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.878049,
+      "left_document_id": "oa2-014",
+      "left_split": "train",
+      "right_document_id": "oa2-041",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.886364,
+      "left_document_id": "oa2-015",
+      "left_split": "train",
+      "right_document_id": "oa2-032",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.886364,
+      "left_document_id": "oa2-015",
+      "left_split": "train",
+      "right_document_id": "oa2-044",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.875,
+      "left_document_id": "oa2-016",
+      "left_split": "train",
+      "right_document_id": "oa2-029",
+      "right_split": "validation"
+    },
+    {
+      "character_trigram_jaccard": 0.923077,
+      "left_document_id": "oa2-016",
+      "left_split": "train",
+      "right_document_id": "oa2-043",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.875,
+      "left_document_id": "oa2-029",
+      "left_split": "validation",
+      "right_document_id": "oa2-043",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.871795,
+      "left_document_id": "oa2-030",
+      "left_split": "validation",
+      "right_document_id": "oa2-042",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.901235,
+      "left_document_id": "oa2-031",
+      "left_split": "validation",
+      "right_document_id": "oa2-041",
+      "right_split": "test"
+    },
+    {
+      "character_trigram_jaccard": 0.886364,
+      "left_document_id": "oa2-032",
+      "left_split": "validation",
+      "right_document_id": "oa2-044",
+      "right_split": "test"
+    }
+  ],
+  "dataset_id": "2a5eda1b0668ee2ec9671b70b5becacc4e8479a28adec212853fd23d6d4d214c",
+  "document_registry_sha256": "12dd42e04f59e1cb642f28fcfe7671411844260ec7c2f139b0ad732df24bfbc7",
+  "heldout_input_combination_overlap": {
+    "train_vs_test/comparison": [],
+    "train_vs_test/parity": [],
+    "train_vs_test/progression": [],
+    "train_vs_validation/comparison": [],
+    "train_vs_validation/parity": [],
+    "train_vs_validation/progression": [],
+    "validation_vs_test/comparison": [],
+    "validation_vs_test/parity": [],
+    "validation_vs_test/progression": []
+  },
+  "limitations": [
+    "Three synthetic task families with fixed templates test operand-combination transfer, not broad reasoning or cybersecurity competence.",
+    "Each split contains only 12 task examples per family-balanced set; estimates are descriptive and are not powered generalization claims.",
+    "The test split is in the public repository and is not secret; runtime access logging does not prevent a human from reading it.",
+    "23 cross-split pairs exceed the fixed 0.82 character-trigram similarity threshold because templates repeat; this remains a material template-leakage risk.",
+    "Character-trigram similarity misses semantic leakage; the task index is needed to detect input-combination overlap.",
+    "The tokenizer is fit only on the train split, but shared task vocabulary across splits is intentional and does not imply independent lexical domains.",
+    "A separate human quality review remains required before experiment admission."
+  ],
+  "manifest_sha256": "b3574cbcd769359ae4fc7ec4ff3f4df4f8fc5351cb004944826f87f9c38cfac1",
+  "max_cross_split_character_trigram_jaccard": 0.930233,
+  "near_duplicate_threshold": 0.82,
+  "normalized_exact_cross_split_duplicates": [],
+  "record_count": 48,
+  "rows_by_split": {
+    "test": 12,
+    "train": 24,
+    "validation": 12
+  },
+  "schema_version": 1,
+  "source_registry_sha256": "ce73d71f59df209e3aeb3c9adb2dbe58408b396c327330bcd9862ee4734fc3d0",
+  "supervised_targets_by_split": {
+    "test": 384,
+    "train": 768,
+    "validation": 384
+  },
+  "task_examples_by_split_and_family": {
+    "test": {
+      "comparison": 4,
+      "parity": 4,
+      "progression": 4
+    },
+    "train": {
+      "comparison": 8,
+      "parity": 8,
+      "progression": 8
+    },
+    "validation": {
+      "comparison": 4,
+      "parity": 4,
+      "progression": 4
+    }
+  },
+  "task_index_sha256": "234a74fe23b2d165682d6ac902a38ad5ebfb3c1aba3881cc817f2e628bd9ba85",
+  "tokenizer_artifact_sha256": "a5a6e350d0863af2a41aeae9a73a6e07d304513f243d293c79e91eb61f39bd09",
+  "tokenizer_fit": {
+    "artifact_recomputed_by_separate_standard_library_audit": true,
+    "fit_records": 24,
+    "fit_split": "train",
+    "heldout_rows_used_in_fit": 0,
+    "train_manifest_sha256_recomputed": "3abe96307e23568481990d68e57467e731a280ed0eada394e405e20a2841d80b"
+  },
+  "tokenizer_fit_record_sha256": "cfc179c8d3ca0a52ab7e7257e258cf22fab1a9e998391a7460cac9a31e0de7cd"
+}

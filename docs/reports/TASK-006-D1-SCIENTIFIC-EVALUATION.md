@@ -73,3 +73,11 @@ Objective A needs a larger frozen authored dataset with reviewed held-out
 coverage before experiment readiness. Objective B requires separate data
 licensing, provenance, and quality review. No external data was acquired.
 No training workflow or compute provider was dispatched.
+
+A later manifest-backed Objective A v2 candidate now exists. It expands the
+three-split software-control coverage and has an independently reproduced
+train-only tokenizer, but it remains small and has 23 cross-split pairs above
+the fixed character-trigram similarity threshold. Its public test split and
+repeated templates prevent treating it as an independent broad generalization
+benchmark. See the [v2 dataset review](TASK-006-D1-OBJECTIVE-A-V2-DATASET.md)
+for identities, baseline evidence, and limitations.

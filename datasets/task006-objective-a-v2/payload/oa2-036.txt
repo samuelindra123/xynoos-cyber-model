@@ -1,0 +1,2 @@
+Prog 438,442,446; d=4; next=450.
+ End of record. Synthetic control sample.

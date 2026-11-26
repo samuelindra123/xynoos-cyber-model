@@ -1,0 +1,2 @@
+Order: 100 vs 96; result=above. Signed rule.
+ End of record. Synthetic control sample.
