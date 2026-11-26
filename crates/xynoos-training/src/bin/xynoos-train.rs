@@ -113,7 +113,12 @@ impl ProcessIdentity {
         if read_boot_id()? != self.boot_id {
             return Ok(false);
         }
-        if matches!(process_state(self.pid)?.as_str(), "Z" | "X") {
+        let state = match process_state(self.pid) {
+            Ok(state) => state,
+            Err(error) if error == "process not found" => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        if matches!(state.as_str(), "Z" | "X") {
             return Ok(false);
         }
         match process_start_time(self.pid) {
@@ -1701,5 +1706,11 @@ mod tests {
             ..current
         };
         assert!(!reused.is_same_process_alive().unwrap());
+
+        let missing = ProcessIdentity {
+            pid: u32::MAX,
+            ..ProcessIdentity::current().unwrap()
+        };
+        assert!(!missing.is_same_process_alive().unwrap());
     }
 }

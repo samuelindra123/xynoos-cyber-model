@@ -1,8 +1,11 @@
 # TASK 006 Engineering Inventory
 
-**Observed:** 2026-11-26, before TASK 006-R2 edits  
-**Repository:** `samuelindra123/xynoos-cyber-model`  
-**Default branch:** `main` at `32eca2b900c4f7a88294f7a24a5dfae0604ae798`  
+**Observed:** 2026-11-26, before TASK 006-R2 edits
+
+**Repository:** `samuelindra123/xynoos-cyber-model`
+
+**Default branch:** `main` at `32eca2b900c4f7a88294f7a24a5dfae0604ae798`
+
 **Active implementation branch:** `feat/task-006-r-runtime-remediation` at `999cfce89f62cfaf7a5fc5ab2da1d9c7c1c21afe`
 
 ## Repository and review state
