@@ -23,7 +23,7 @@ R2 local package execution after the implementation commit recorded:
 | `cli_process` integration tests | 3 passed after correcting test output capture and checking the new typed contention message |
 | `lock_process` integration tests | 5 passed |
 
-The exact latest R2 Foundation CI run is `45771271381`, job `139744217648`, at `e6336e3af48ab5be7a55c99a90b5b84c94d0992d`. Its log confirms exact checkout, formatting, Clippy, all numerical/data oracles, debug and release Rust test suites, trajectory comparison, and remaining mathematical gates passed. The job failed only because the workflow expected 164 direct test results while the log contained 165. Child worker output is now suppressed; C3 expects 170 total direct checks (165 R2 plus five C3 checks). That corrected count still needs hosted evidence.
+The corrected R2 Foundation CI run `45772399582`, job `139747896665`, checked out exact SHA `21d9990760380195b9d9379b6d43f848ad6c17df`; all 29 workflow steps succeeded, including the corrected direct-test count, debug and release suites, all numerical/data oracles, and resource checks. The prior run `45771271381` at `e6336e3` exposed the stale expected total (164 expected, 165 observed); the workflow assertion was corrected without changing tolerances or checks. C3 expects 170 total direct checks (165 R2 plus five C3 checks); that exact C3 hosted run remains pending.
 
 The earlier C2 test-evidence report records the independent optimizer/checkpoint controls and failure reproductions used before R2. This C3 pass did not substitute implementation-authored tests alone for independent process and sidecar reproductions.
 
