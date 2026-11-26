@@ -11,3 +11,44 @@ The tensor foundation is evaluated through hand-calculated tests, bounded exact 
 First-order reverse-mode gradients are checked against independent analytical and finite-difference coordinates, with explicit negative controls. The native learning proof uses five fixed synthetic samples and transactional SGD for exactly 100 updates; the checked-in fixture captures 101 states and CI requires bitwise agreement between debug and release trajectories. This experiment is evidence for that regression case only. See the [TASK 003 implementation report](reports/TASK-003-B-IMPLEMENTATION-REPORT.md) and [independent verification report](reports/TASK-003-C-INDEPENDENT-VERIFICATION-REPORT.md).
 
 Performance studies should define the workload, environment category, measurement method, warm-up and repetition policy, memory use, and variance. Preserve raw results and scripts where licensing and privacy allow. Reproduce results from a recorded source revision and dataset version when practical.
+
+## TASK 006 deterministic evaluation
+
+The native training library now exposes a bounded multi-batch evaluator. Its
+limits cover batch count, consumed tokens, forward work, source memory, and
+batch positions. It requires a stable source cursor, validates train and
+validation order identities, reports token-weighted cross entropy, and records
+the dataset, split, model state, tokenizer, evaluation policy, work, memory, and
+whether the test split was accessed. Empty-supervision batches are counted but
+do not contribute a loss; a split with no supervised targets reports no loss
+or perplexity. Test batches are rejected by periodic validation and by the
+trainer's training source admission.
+
+Use `evaluate_standard_dataset_split` for manifest-backed evaluations. It
+validates the run identity against the admitted dataset and tokenizer, then
+constructs the deterministic split stream itself. Generic batch sources remain
+available for software fixtures; their caller is responsible for supplying
+the contents represented by the recorded split identity.
+
+Initial-weight baseline evaluations use one immutable model with no optimizer
+and report train, validation, and test separately. Test access is explicitly
+marked. Evaluation policy is part of the run configuration and new checkpoint
+records; the checkpoint reader retains the previous default-policy encoding.
+The independent standard-library aggregation fixture checks token weighting
+against a case where an unweighted mean gives a different answer.
+
+The checked-in Objective A evaluation fixture is a software control, not a
+training dataset or evidence of cybersecurity capability. It has only two
+examples per split and 64 supervised targets per split. Both training and
+validation reuse the same template families, and the test split contains one
+family. The split audit found no normalized exact duplicates and no
+character-trigram pair at the existing 0.82 near-duplicate threshold, but the
+largest cross-split trigram similarity is 0.717391. Character n-grams do not
+detect semantic or paraphrase leakage. The tokenizer was fit on a separate
+train-only Task 004 manifest; that does not prove the learned merges contain no
+fragments that overlap Objective A.
+
+This fixture can check deterministic aggregation and a narrow optimizer
+learning signal. It is too small to choose a learning rate or support a
+generalization claim. Objective B remains unavailable until a separate,
+licensed corpus passes provenance and quality review.

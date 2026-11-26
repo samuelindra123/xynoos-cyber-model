@@ -9,7 +9,7 @@ use xynoos_tokenizer::{Tokenizer, TokenizerArtifact, TokenizerLimits};
 use xynoos_transformer::Config;
 
 use crate::provenance::{SOURCE_REPOSITORY_ID, SourceIdentity};
-use crate::{LinearWarmupDecay, Result, TrainingError, TrainingMemoryPlan};
+use crate::{EvaluationLimits, LinearWarmupDecay, Result, TrainingError, TrainingMemoryPlan};
 
 pub const MODEL_ID: &str = "xynoos-cyber-0.1";
 const SPECIAL_REGISTRY: &[u8] = b"XYNOOS-SPECIALS-V1|BOS=256|EOS=257|PAD=258|DOC_SEP=259";
@@ -356,6 +356,7 @@ pub struct TrainingConfig {
     autograd_limits: ResourceLimits,
     gradient_clip: Option<f32>,
     seed: u64,
+    validation_limits: EvaluationLimits,
 }
 
 impl TrainingConfig {
@@ -368,6 +369,7 @@ impl TrainingConfig {
         gradient_clip: Option<f32>,
         seed: u64,
     ) -> Result<Self> {
+        let validation_limits = EvaluationLimits::default_for_source(limits.owned_memory_bytes());
         let config = Self {
             model: Config::RESEARCH_CANDIDATE,
             optimizer,
@@ -377,9 +379,17 @@ impl TrainingConfig {
             autograd_limits,
             gradient_clip,
             seed,
+            validation_limits,
         };
         config.validate_static()?;
         Ok(config)
+    }
+
+    /// Set the deterministic, bounded multi-batch validation policy.
+    pub fn with_validation_limits(mut self, limits: EvaluationLimits) -> Result<Self> {
+        self.validation_limits = limits;
+        self.validate_static()?;
+        Ok(self)
     }
 
     pub(crate) fn validate_static(self) -> Result<()> {
@@ -388,6 +398,7 @@ impl TrainingConfig {
             || self.memory.owned_cap() != self.limits.owned_memory_bytes
             || self.memory.data_allowance() > 64 * MIB
             || self.autograd_limits.max_bytes() > self.limits.owned_memory_bytes
+            || self.validation_limits.max_source_bytes() > self.limits.owned_memory_bytes
         {
             return Err(TrainingError::InvalidConfiguration);
         }
@@ -431,6 +442,9 @@ impl TrainingConfig {
     }
     pub fn seed(self) -> u64 {
         self.seed
+    }
+    pub fn validation_limits(self) -> EvaluationLimits {
+        self.validation_limits
     }
 
     pub fn candidate_policy(self) -> Result<CandidateTrainingPolicy> {
@@ -510,6 +524,22 @@ impl TrainingConfig {
         bytes.extend_from_slice(&(self.autograd_limits.max_values() as u64).to_le_bytes());
         bytes.extend_from_slice(&(self.autograd_limits.max_operations() as u64).to_le_bytes());
         bytes.extend_from_slice(&(self.autograd_limits.max_work() as u64).to_le_bytes());
+        // The v1 checkpoint/run identity had no evaluation limits. Preserve
+        // its digest for the default policy while binding any configured
+        // multi-batch policy into new experiment identities.
+        if self.validation_limits
+            != EvaluationLimits::default_for_source(self.limits.owned_memory_bytes())
+        {
+            bytes.extend_from_slice(&self.validation_limits.max_batches().to_le_bytes());
+            bytes.extend_from_slice(&self.validation_limits.max_consumed_tokens().to_le_bytes());
+            bytes.extend_from_slice(&self.validation_limits.max_forward_work().to_le_bytes());
+            bytes.extend_from_slice(
+                &(self.validation_limits.max_source_bytes() as u64).to_le_bytes(),
+            );
+            bytes.extend_from_slice(
+                &(self.validation_limits.max_batch_positions() as u64).to_le_bytes(),
+            );
+        }
         Sha256::digest(bytes).into()
     }
 }

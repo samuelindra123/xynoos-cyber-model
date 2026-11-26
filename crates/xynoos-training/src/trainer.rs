@@ -272,7 +272,9 @@ impl<S: BatchSource> Trainer<S> {
         let started = Instant::now();
         validate_root(root)?;
         config.validate_static()?;
-        if source.order_identity() != identity.data_order_identity() {
+        if source.split() != xynoos_data::Split::Train
+            || source.order_identity() != identity.data_order_identity()
+        {
             return Err(TrainingError::InvalidIdentity);
         }
         validate_data_memory(&source, tokenizer, config)?;
@@ -611,7 +613,9 @@ impl<S: BatchSource> Trainer<S> {
 
     fn run_updates(&mut self, mut validation: Option<&mut dyn BatchSource>) -> Result<StopReason> {
         if let Some(source) = validation.as_deref() {
-            if source.order_identity() != self.identity.validation_order_identity() {
+            if source.split() != xynoos_data::Split::Validation
+                || source.order_identity() != self.identity.validation_order_identity()
+            {
                 return Err(TrainingError::InvalidIdentity);
             }
             validate_data_source_memory(source, self.config)?;
@@ -978,40 +982,57 @@ impl<S: BatchSource> Trainer<S> {
     }
 
     fn validate_once(&mut self, validation: &mut dyn BatchSource) -> Result<()> {
-        if validation.order_identity() != self.identity.validation_order_identity() {
+        if validation.split() != xynoos_data::Split::Validation
+            || validation.order_identity() != self.identity.validation_order_identity()
+        {
             return Err(TrainingError::InvalidIdentity);
         }
         validate_data_source_memory(validation, self.config)?;
         validation.seek_to(0)?;
-        let Some(batch) = validation.next_batch()? else {
-            return Ok(());
-        };
-        let (_, supervised) = count_batch(&batch)?;
-        if supervised == 0 {
-            return Ok(());
-        }
-        let work = ResourceLimits::MAX_WORK as u64;
         let _reservation = self.run_budget.reserve_phase(MemoryPhase::Validation)?;
-        self.journal.precharge_auxiliary_work(work)?;
-        self.policy
-            .charge_auxiliary_work(self.model.parameters(), work)?;
         let start = Instant::now();
-        let evaluation = self.model.evaluate_batch(&batch)?;
-        let loss = f64::from(evaluation.loss());
+        let model = &self.model;
+        let parameters = model.parameters();
+        let identity = &self.identity;
+        let limits = self.config.validation_limits();
+        let report = crate::evaluation::evaluate_batches_with_charge(
+            model,
+            identity,
+            crate::EvaluationStage::PeriodicValidation,
+            validation,
+            limits,
+            |charge| {
+                let work = match charge {
+                    crate::evaluation::EvaluationCharge::BatchRead => 32,
+                    crate::evaluation::EvaluationCharge::ForwardPass => {
+                        ResourceLimits::MAX_WORK as u64
+                    }
+                };
+                self.journal.precharge_auxiliary_work(work)?;
+                self.policy.charge_auxiliary_work(parameters, work)?;
+                Ok(())
+            },
+        )?;
         self.timings.validation.push(start.elapsed());
         self.counters.validation_supervised_tokens = self
             .counters
             .validation_supervised_tokens
-            .checked_add(supervised)
+            .checked_add(report.supervised_tokens)
             .ok_or(TrainingError::ArithmeticOverflow)?;
         self.log
             .write_event(
                 "validation",
                 json!({
-                    "loss": loss,
-                    "supervised_tokens": supervised,
+                    "loss": report.mean_loss,
+                    "perplexity": report.perplexity,
+                    "perplexity_overflow": report.perplexity_overflow,
+                    "batch_count": report.batch_count,
+                    "consumed_tokens": report.consumed_tokens,
+                    "supervised_tokens": report.supervised_tokens,
                     "validation_supervised_tokens": self.counters.validation_supervised_tokens,
-                    "work_reserved": work,
+                    "forward_work": report.total_forward_work,
+                    "evaluation_config_sha256": report.evaluation_config_sha256,
+                    "test_access": report.test_access,
                 }),
             )
             .map_err(|_| TrainingError::Logging("validation"))?;
@@ -1436,6 +1457,9 @@ mod tests {
                 Err(TrainingError::InvalidConfiguration)
             }
         }
+        fn split(&self) -> xynoos_data::Split {
+            xynoos_data::Split::Train
+        }
         fn order_identity(&self) -> [u8; 32] {
             self.order
         }
@@ -1792,7 +1816,11 @@ mod tests {
         let fixture = fixture();
         let tokenizer = tokenizer();
         let identity = identity(&tokenizer, &fixture);
-        let config = config(&fixture, 1, 2);
+        let config = config(&fixture, 1, 2)
+            .with_validation_limits(
+                crate::EvaluationLimits::new(2, 4_096, 250_000_000, 4 << 20, 32).unwrap(),
+            )
+            .unwrap();
         let train_order = identity.data_order_identity();
         let validation_order = identity.validation_order_identity();
         let preparation_start = Instant::now();
@@ -1800,7 +1828,11 @@ mod tests {
         let heldout = batches(&fixture, "validation", &tokenizer);
         let fixture_preparation = preparation_start.elapsed();
         let train_source = VecBatchSource::new(train_batches, train_order);
-        let mut validation_source = VecBatchSource::new(copy_batches(&heldout), validation_order);
+        let mut validation_source = VecBatchSource::for_split(
+            copy_batches(&heldout),
+            validation_order,
+            xynoos_data::Split::Validation,
+        );
         let root = root("objective-a");
         let orphan = root.join(".xyckpt-orphan.tmp");
         fs::write(&orphan, b"interrupted checkpoint").unwrap();
@@ -1842,7 +1874,7 @@ mod tests {
         assert_eq!(report.counters.committed_cursor, 2);
         assert_eq!(report.counters.committed_consumed_tokens, 64);
         assert_eq!(report.counters.committed_supervised_tokens, 64);
-        assert_eq!(report.counters.validation_supervised_tokens, 64);
+        assert_eq!(report.counters.validation_supervised_tokens, 128);
         assert_ne!(
             before_parameter, after_parameter,
             "the tied embedding Transformer parameter must update"
@@ -1903,6 +1935,135 @@ mod tests {
             serde_json::from_str::<Value>(line)
                 .is_ok_and(|record| record["type"] == "optimizer_update")
         }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn objective_a_initial_baseline_covers_train_validation_and_locked_test() {
+        let fixture = fixture();
+        let tokenizer = tokenizer();
+        let source_identity = crate::attest_source_checkout(
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let splits = &fixture["split_sha256"];
+        let identity = RunIdentity::new(
+            source_identity.revision().to_owned(),
+            true,
+            fixture["fixture_id"].as_str().unwrap().to_owned(),
+            Sha256::digest(FIXTURE.as_bytes()).into(),
+            digest(splits["train"].as_str().unwrap()),
+            digest(splits["validation"].as_str().unwrap()),
+            digest(splits["test"].as_str().unwrap()),
+            "task006-objective-a-v1".to_owned(),
+            tokenizer.algorithm().to_owned(),
+            digest(fixture["tokenizer_artifact_sha256"].as_str().unwrap()),
+            292,
+            digest(fixture["data_order_identity_sha256"].as_str().unwrap()),
+            digest(
+                fixture["validation_order_identity_sha256"]
+                    .as_str()
+                    .unwrap(),
+            ),
+        );
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            &tokenizer,
+            fixture["model_seed"].as_u64().unwrap(),
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let limits = |batches| {
+            crate::EvaluationLimits::new(batches, batches * 32, 250_000_000, 4 << 20, 32).unwrap()
+        };
+        let train = crate::evaluate_batches(
+            &model,
+            &tokenizer,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            VecBatchSource::for_split(
+                batches(&fixture, "train", &tokenizer),
+                identity.data_order_identity(),
+                xynoos_data::Split::Train,
+            ),
+            limits(2),
+        )
+        .unwrap();
+        let validation = crate::evaluate_batches(
+            &model,
+            &tokenizer,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            VecBatchSource::for_split(
+                batches(&fixture, "validation", &tokenizer),
+                identity.validation_order_identity(),
+                xynoos_data::Split::Validation,
+            ),
+            limits(2),
+        )
+        .unwrap();
+        let mut test_order = Sha256::new();
+        test_order.update(b"XYNOOS-TASK006-OBJECTIVE-A-TEST-ORDER-V1\0");
+        for row in fixture["sample_order"]["test"].as_array().unwrap() {
+            test_order.update(row.as_str().unwrap().as_bytes());
+        }
+        let test = crate::evaluate_batches(
+            &model,
+            &tokenizer,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            VecBatchSource::for_split(
+                batches(&fixture, "test", &tokenizer),
+                test_order.finalize().into(),
+                xynoos_data::Split::Test,
+            ),
+            limits(2),
+        )
+        .unwrap();
+
+        assert_eq!(train.batch_count, 2);
+        assert_eq!(validation.batch_count, 2);
+        assert_eq!(test.batch_count, 2);
+        assert_eq!(train.supervised_tokens, 64);
+        assert_eq!(validation.supervised_tokens, 64);
+        assert_eq!(test.supervised_tokens, 64);
+        assert!(train.mean_loss.unwrap().is_finite());
+        assert!(validation.mean_loss.unwrap().is_finite());
+        assert!(test.mean_loss.unwrap().is_finite());
+        assert!(!train.test_access && !validation.test_access && test.test_access);
+        assert_eq!(train.model_state_sha256, validation.model_state_sha256);
+        assert_eq!(validation.model_state_sha256, test.model_state_sha256);
+        println!("TASK006_D1_BASELINE train={}", train.to_json());
+        println!("TASK006_D1_BASELINE validation={}", validation.to_json());
+        println!("TASK006_D1_BASELINE test_access={}", test.to_json());
+    }
+
+    #[test]
+    fn trainer_rejects_test_split_before_model_allocation() {
+        let fixture = fixture();
+        let tokenizer = tokenizer();
+        let identity = identity(&tokenizer, &fixture);
+        let source = VecBatchSource::for_split(
+            batches(&fixture, "test", &tokenizer),
+            identity.data_order_identity(),
+            xynoos_data::Split::Test,
+        );
+        let root = root("test-split-training-rejection");
+        assert_eq!(
+            Trainer::new(
+                &root,
+                identity,
+                config(&fixture, 1, 2),
+                &tokenizer,
+                source,
+                StopToken::new(),
+            )
+            .err(),
+            Some(TrainingError::InvalidIdentity)
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
         fs::remove_dir_all(root).unwrap();
     }
 

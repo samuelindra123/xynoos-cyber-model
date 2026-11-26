@@ -209,6 +209,7 @@ impl Batch {
 
 pub struct BatchStream<'a> {
     reader: DatasetReader<'a>,
+    split: Split,
     model: &'a Tokenizer,
     config: StreamConfig,
     positions: usize,
@@ -268,6 +269,7 @@ impl Dataset {
         let order_identity = stream_identity(self.manifest_sha256(), split, model, config)?;
         Ok(BatchStream {
             reader: self.reader(split),
+            split,
             model,
             config,
             positions,
@@ -287,6 +289,11 @@ fn batch_bytes(positions: usize, masks: bool) -> Result<usize> {
 }
 
 impl BatchStream<'_> {
+    /// Dataset split represented by this deterministic stream.
+    pub fn split(&self) -> Split {
+        self.split
+    }
+
     pub fn order_identity(&self) -> [u8; 32] {
         self.order_identity
     }

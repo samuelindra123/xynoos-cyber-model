@@ -6,6 +6,11 @@ pub type Result<T> = std::result::Result<T, TrainingError>;
 pub enum TrainingError {
     InvalidConfiguration,
     InvalidIdentity,
+    EvaluationSplitMismatch,
+    EvaluationBatchLimit,
+    EvaluationTokenLimit,
+    EvaluationWorkLimit,
+    NonFiniteEvaluation,
     InvalidSchedule,
     ScheduleComplete,
     ResourceLimit {

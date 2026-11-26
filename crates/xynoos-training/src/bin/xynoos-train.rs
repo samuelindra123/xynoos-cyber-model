@@ -20,8 +20,9 @@ use xynoos_data::{
 };
 use xynoos_tokenizer::{Boundaries, TokenizerLimits};
 use xynoos_training::{
-    AdvisoryLock, CheckpointCodec, LinearWarmupDecay, LockError, RunIdentity, RunJournal,
-    RunLimits, StopToken, Trainer, TrainingConfig, TrainingMemoryPlan, attest_source_checkout,
+    AdvisoryLock, CheckpointCodec, EvaluationLimits, LinearWarmupDecay, LockError, RunIdentity,
+    RunJournal, RunLimits, StopToken, Trainer, TrainingConfig, TrainingMemoryPlan,
+    attest_source_checkout,
 };
 
 const CONFIG_MAX: usize = 16 * 1024;
@@ -419,7 +420,7 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
     let raw_config = read_bounded(&config_path, CONFIG_MAX)?;
     let value: Value =
         serde_json::from_slice(&raw_config).map_err(|_| "invalid JSON configuration")?;
-    let top = object(
+    let top = object_with_optional(
         &value,
         &[
             "schema_version",
@@ -441,6 +442,7 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
             "gradient_clip",
             "seed",
         ],
+        &["evaluation"],
     )?;
     if u64_value(top, "schema_version")? != 2 {
         return Err("unsupported configuration schema".into());
@@ -564,6 +566,37 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
         u64_value(top, "seed")?,
     )
     .map_err(|error| format!("training configuration: {error:?}"))?;
+    let evaluation_limits = if let Some(value) = top.get("evaluation") {
+        let evaluation = object(
+            value,
+            &[
+                "max_batches",
+                "max_consumed_tokens",
+                "max_forward_work",
+                "max_source_bytes",
+                "max_batch_positions",
+            ],
+        )?;
+        EvaluationLimits::new(
+            u64_value(evaluation, "max_batches")?,
+            u64_value(evaluation, "max_consumed_tokens")?,
+            u64_value(evaluation, "max_forward_work")?,
+            usize_value(evaluation, "max_source_bytes")?,
+            usize_value(evaluation, "max_batch_positions")?,
+        )
+    } else {
+        EvaluationLimits::new(
+            1,
+            65_536,
+            ResourceLimits::MAX_WORK as u64,
+            owned.min(64 * 1024 * 1024),
+            65_536,
+        )
+    }
+    .map_err(|error| format!("evaluation limits: {error:?}"))?;
+    let config = config
+        .with_validation_limits(evaluation_limits)
+        .map_err(|error| format!("training evaluation policy: {error:?}"))?;
 
     let mut data_limits = DatasetLimits::MAX;
     // Train and validation streams are simultaneously live in Trainer. Split
@@ -1248,6 +1281,13 @@ fn validation_json(prepared: &Prepared, root: &Path) -> Value {
             "max_runtime_seconds":prepared.config.limits().max_runtime().as_secs(),
             "max_attempt_runtime_seconds":prepared.config.limits().max_attempt_runtime().as_secs(),
         },
+        "evaluation_limits":{
+            "max_batches":prepared.config.validation_limits().max_batches(),
+            "max_consumed_tokens":prepared.config.validation_limits().max_consumed_tokens(),
+            "max_forward_work":prepared.config.validation_limits().max_forward_work(),
+            "max_source_bytes":prepared.config.validation_limits().max_source_bytes(),
+            "max_batch_positions":prepared.config.validation_limits().max_batch_positions(),
+        },
         "source_kind":"manifest-v1-stream",
         "batch":{"B":1,"T":MODEL_T},
     })
@@ -1518,6 +1558,25 @@ fn object<'a>(value: &'a Value, allowed: &[&str]) -> CliResult<&'a Map<String, V
         }
     }
     for key in allowed {
+        if !object.contains_key(*key) {
+            return Err(format!("missing configuration field: {key}"));
+        }
+    }
+    Ok(object)
+}
+
+fn object_with_optional<'a>(
+    value: &'a Value,
+    required: &[&str],
+    optional: &[&str],
+) -> CliResult<&'a Map<String, Value>> {
+    let object = value.as_object().ok_or("configuration object expected")?;
+    for key in object.keys() {
+        if !required.contains(&key.as_str()) && !optional.contains(&key.as_str()) {
+            return Err(format!("unknown configuration field: {key}"));
+        }
+    }
+    for key in required {
         if !object.contains_key(*key) {
             return Err(format!("missing configuration field: {key}"));
         }

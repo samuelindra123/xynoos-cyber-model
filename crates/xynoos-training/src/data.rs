@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use xynoos_data::{Batch, BatchStream};
+use xynoos_data::{Batch, BatchStream, Split};
 
 use crate::{Result, TrainingError};
 
@@ -9,9 +9,18 @@ pub trait BatchSource {
     fn next_batch(&mut self) -> Result<Option<Batch>>;
     fn cursor(&self) -> u64;
     fn seek_to(&mut self, cursor: u64) -> Result<()>;
+    /// Declared dataset role; the trainer rejects held-out sources.
+    fn split(&self) -> Split;
     fn order_identity(&self) -> [u8; 32];
     /// Retained or conservative source-side bytes charged to the data budget.
     fn reserved_memory_bytes(&self) -> Result<usize>;
+
+    /// Conservative peak source bytes while one emitted batch is live.
+    fn evaluation_reserved_bytes(&self, batch_bytes: usize) -> Result<usize> {
+        self.reserved_memory_bytes()?
+            .checked_add(batch_bytes)
+            .ok_or(TrainingError::ArithmeticOverflow)
+    }
 }
 
 impl BatchSource for BatchStream<'_> {
@@ -27,6 +36,10 @@ impl BatchSource for BatchStream<'_> {
         Ok(BatchStream::seek_batches(self, cursor)?)
     }
 
+    fn split(&self) -> Split {
+        BatchStream::split(self)
+    }
+
     fn order_identity(&self) -> [u8; 32] {
         BatchStream::order_identity(self)
     }
@@ -34,20 +47,61 @@ impl BatchSource for BatchStream<'_> {
     fn reserved_memory_bytes(&self) -> Result<usize> {
         Ok(BatchStream::reserved_memory_bytes(self)?)
     }
+
+    fn evaluation_reserved_bytes(&self, _batch_bytes: usize) -> Result<usize> {
+        // BatchStream's reservation already includes the output batch area.
+        Ok(BatchStream::reserved_memory_bytes(self)?)
+    }
+}
+
+impl<S: BatchSource + ?Sized> BatchSource for &mut S {
+    fn next_batch(&mut self) -> Result<Option<Batch>> {
+        (**self).next_batch()
+    }
+
+    fn cursor(&self) -> u64 {
+        (**self).cursor()
+    }
+
+    fn seek_to(&mut self, cursor: u64) -> Result<()> {
+        (**self).seek_to(cursor)
+    }
+
+    fn split(&self) -> Split {
+        (**self).split()
+    }
+
+    fn order_identity(&self) -> [u8; 32] {
+        (**self).order_identity()
+    }
+
+    fn reserved_memory_bytes(&self) -> Result<usize> {
+        (**self).reserved_memory_bytes()
+    }
+
+    fn evaluation_reserved_bytes(&self, batch_bytes: usize) -> Result<usize> {
+        (**self).evaluation_reserved_bytes(batch_bytes)
+    }
 }
 
 #[derive(Debug)]
 pub struct VecBatchSource {
     batches: Vec<Batch>,
     cursor: u64,
+    split: Split,
     order_identity: [u8; 32],
 }
 
 impl VecBatchSource {
     pub fn new(batches: Vec<Batch>, order_identity: [u8; 32]) -> Self {
+        Self::for_split(batches, order_identity, Split::Train)
+    }
+
+    pub fn for_split(batches: Vec<Batch>, order_identity: [u8; 32], split: Split) -> Self {
         Self {
             batches,
             cursor: 0,
+            split,
             order_identity,
         }
     }
@@ -88,6 +142,10 @@ impl BatchSource for VecBatchSource {
         }
         self.cursor = cursor;
         Ok(())
+    }
+
+    fn split(&self) -> Split {
+        self.split
     }
 
     fn order_identity(&self) -> [u8; 32] {
