@@ -93,3 +93,15 @@ for those tokens and is not strict answer-only evaluation. This is a
 cross-implementation software check, not independent human review, and no
 post-update answer-bearing improvement has been demonstrated. The training
 stream still uses its ordinary all-token loss masks.
+
+Objective A v3 is the next authored-synthetic candidate. It reserves both
+semantic task-input groups and prompt templates by split, and the standard
+library audit finds no exact overlap, no cross-split input/template overlap,
+and no pair above the fixed 0.82 character-trigram threshold. Its native
+unchanged-weight baseline records full-sequence train/validation/public-test
+losses of 5.702619792, 5.700838645, and 5.699661671. Answer-bearing validation
+and public-test baseline losses are 5.747362546 and 5.692370273 over only 28
+and 27 target positions. Full identities and limits are in the
+[v3 dataset report](TASK-006-D1-OBJECTIVE-A-V3-DATASET.md). This corpus remains
+public, small, single-source, and unreviewed by a separate human. No v3
+optimizer update or learning result has been demonstrated.
