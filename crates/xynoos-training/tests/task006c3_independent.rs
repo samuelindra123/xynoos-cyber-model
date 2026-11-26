@@ -371,6 +371,8 @@ fn independent_sidecar_interruption_leaves_only_recoverable_staging() {
 import resource, signal, subprocess, sys
 resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
 result = subprocess.run(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+if result.returncode != -signal.SIGXFSZ:
+    sys.stderr.write(f"child returncode={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}\\n")
 sys.exit(0 if result.returncode == -signal.SIGXFSZ else 1)
 "#;
     let interrupted = Command::new("python3")
