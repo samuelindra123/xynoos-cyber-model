@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md research/README.md models/README.md datasets/README.md benchmarks/README.md experiments/README.md)
+          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md docs/reports/TASK-006-D1-SCIENTIFIC-EVALUATION.md docs/reports/TASK-006-D1-TEST-EVIDENCE.md docs/reports/TASK-006-D1-SPLIT-LEAKAGE-AUDIT.md research/README.md models/README.md datasets/README.md benchmarks/README.md experiments/README.md)
           for file in "${required[@]}"; do
             test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
           done
@@ -135,6 +135,12 @@ jobs:
       - name: Verify frozen Objective A learning fixture
         run: python3 tools/task006_objective_a.py --check
 
+      - name: Verify independent multi-batch evaluation fixture
+        run: python3 tools/task006_evaluation_oracle.py --check
+
+      - name: Verify Objective A split and tokenizer leakage audit
+        run: python3 tools/task006_evaluation_audit.py --check
+
       - name: Regenerate and verify independent tokenizer and dataset fixtures
         run: python3 tools/tokenizer_data_oracle.py --check
 
@@ -189,8 +195,8 @@ jobs:
         run: |
           for profile in debug release; do
             total=$(awk '/^test result: ok[.] / { count += $4 } END { print count }' "$RUNNER_TEMP/$profile-tests.txt")
-            test "$total" -eq 170
-            printf '%s matches 138 preserved checks, 12 prior TASK 006-R checks, 15 R2 checks and 5 C3 audit checks\n' "$profile"
+            test "$total" -eq 178
+            printf '%s matches 138 preserved checks, 12 prior TASK 006-R checks, 15 R2 checks, 5 C3 audit checks and 8 D1 evaluation checks\n' "$profile"
           done
 
       - name: Measure isolated Transformer reference passes

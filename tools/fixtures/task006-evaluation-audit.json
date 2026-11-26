@@ -1,0 +1,43 @@
+{
+  "assessment": "insufficient-for-meaningful-learning-rate-selection-or-generalization",
+  "limits": [
+    "The fixture has two rows per split and only 64 supervised targets per split.",
+    "Training and validation reuse both template families; the conditional pair has substantial surface overlap.",
+    "The held-out test has one family and two rows, so it is not a stable generalization estimate.",
+    "Character-trigram Jaccard detects surface overlap only, not paraphrase or semantic contamination.",
+    "Tokenizer overlap checks compare raw training texts and cannot prove that learned subword merges reveal no fragments.",
+    "The Objective A fixture is not a standard manifest-backed training dataset."
+  ],
+  "max_cross_split_character_trigram_jaccard": 0.717391,
+  "max_objective_to_tokenizer_fit_train_character_trigram_jaccard": 0.106667,
+  "near_duplicate_pairs_at_or_above_threshold": [],
+  "near_duplicate_threshold": 0.82,
+  "normalized_exact_duplicate_pairs": [],
+  "objective_a_fixture_id": "task006-objective-a-v1",
+  "objective_a_fixture_sha256": "63050baf97f301c5ca6a3ad07a1a632bef77938b69f0317622738b5bbc00fa33",
+  "rows_by_split": {
+    "test": 2,
+    "train": 2,
+    "validation": 2
+  },
+  "schema_version": 1,
+  "supervised_tokens_by_split": {
+    "test": 64,
+    "train": 64,
+    "validation": 64
+  },
+  "template_family_overlap": {
+    "test_vs_train": [],
+    "test_vs_validation": [],
+    "train_vs_validation": [
+      "conditional",
+      "loop"
+    ]
+  },
+  "tokenizer_artifact_sha256": "86aa40996d4a9bfe15491131bbe6fb1b04f5e325a50b23a3d7f0fa06bb56011c",
+  "tokenizer_fit_dataset_id": "ee1aa4f39a03a0304bc644cc1f6634fd1f75d987c0167aa7aa32c835dd95cee0",
+  "tokenizer_fit_normalized_exact_overlap_pairs": [],
+  "tokenizer_fit_train_manifest_sha256": "0041f6e5ff80d175265e5675da78aebe2db12007c0d4744f9b6e06f50a27e502",
+  "tokenizer_fit_train_record_count": 10,
+  "window_tokens_per_row": 32
+}

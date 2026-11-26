@@ -629,11 +629,12 @@ impl StreamWriter<BufWriter<File>> {
     }
 }
 
-fn run_config_bytes(config: TrainingConfig) -> [u8; 125] {
+fn run_config_bytes(config: TrainingConfig) -> [u8; 165] {
     let limits = config.limits();
     let memory = config.memory();
     let autograd = config.autograd_limits();
-    let mut bytes = [0_u8; 125];
+    let evaluation = config.validation_limits();
+    let mut bytes = [0_u8; 165];
     let mut cursor = 0;
     macro_rules! put_u32 {
         ($value:expr) => {{
@@ -647,7 +648,7 @@ fn run_config_bytes(config: TrainingConfig) -> [u8; 125] {
             cursor += 8;
         }};
     }
-    put_u32!(1);
+    put_u32!(2);
     put_u32!(limits.microbatches_per_update());
     for value in [
         limits.max_updates(),
@@ -680,6 +681,15 @@ fn run_config_bytes(config: TrainingConfig) -> [u8; 125] {
             bytes[cursor..cursor + 4].copy_from_slice(&0_u32.to_le_bytes());
             cursor += 4;
         }
+    }
+    for value in [
+        evaluation.max_batches(),
+        evaluation.max_consumed_tokens(),
+        evaluation.max_forward_work(),
+        evaluation.max_source_bytes() as u64,
+        evaluation.max_batch_positions() as u64,
+    ] {
+        put_u64!(value);
     }
     debug_assert_eq!(cursor, bytes.len());
     bytes
@@ -941,7 +951,7 @@ fn field_length_valid(section: usize, id: u16, length: u64) -> bool {
         (0, 12) => Some(32),
         (0, 13) => Some(4),
         (0, 14) => Some(32),
-        (0, 15) => Some(125),
+        (0, 15) => None,
         (0, 16) => Some(32),
         (1, 1) => Some(24),
         (1, 2) => Some(8),
@@ -975,6 +985,7 @@ fn field_length_valid(section: usize, id: u16, length: u64) -> bool {
         return length == exact;
     }
     match (section, id) {
+        (0, 15) => (125..=165).contains(&length),
         (0, 5) | (0, 10) => (1..=128).contains(&length),
         (0, 11) => (1..=32).contains(&length),
         (1, 6) => length <= 4096,
@@ -1173,13 +1184,14 @@ struct IdentityFields {
     tokenizer_digest: [u8; 32],
     vocabulary: u32,
     special_digest: [u8; 32],
-    run: [u8; 125],
+    run: Vec<u8>,
 }
 
 struct RunSettings {
     limits: RunLimits,
     memory: crate::TrainingMemoryPlan,
     autograd: ResourceLimits,
+    validation: crate::EvaluationLimits,
     clip: Option<f32>,
 }
 
@@ -1216,12 +1228,9 @@ fn decode_identity<R: Read>(r: &mut DecodeReader<R>) -> Result<IdentityFields> {
             .map_err(|_| TrainingError::Checkpoint("vocab"))?,
     );
     let special_digest = array32(r.small_after_field(14, 32)?)?;
-    let run: [u8; 125] = r
-        .small_after_field(15, 125)?
-        .try_into()
-        .map_err(|_| TrainingError::Checkpoint("run_config"))?;
+    let run = r.small_after_field(15, 165)?;
     let policy = array32(r.small_after_field(16, 32)?)?;
-    let expected: [u8; 32] = Sha256::digest(run).into();
+    let expected: [u8; 32] = Sha256::digest(&run).into();
     if policy != expected || r.position != end {
         return Err(TrainingError::Checkpoint("identity_section_mismatch"));
     }
@@ -1667,14 +1676,15 @@ fn element_count(shape: &[u32]) -> Result<usize> {
     })
 }
 
-fn parse_run_config(bytes: &[u8; 125]) -> Result<RunSettings> {
+fn parse_run_config(bytes: &[u8]) -> Result<RunSettings> {
     fn get_u32(b: &[u8], i: usize) -> u32 {
         u32::from_le_bytes(b[i..i + 4].try_into().expect("fixed RUN1 field"))
     }
     fn get_u64(b: &[u8], i: usize) -> u64 {
         u64::from_le_bytes(b[i..i + 8].try_into().expect("fixed RUN1 field"))
     }
-    if get_u32(bytes, 0) != 1 {
+    let version = get_u32(bytes, 0);
+    if !matches!((version, bytes.len()), (1, 125) | (2, 165)) {
         return Err(TrainingError::Checkpoint("run_config_version"));
     }
     let micro =
@@ -1704,22 +1714,35 @@ fn parse_run_config(bytes: &[u8; 125]) -> Result<RunSettings> {
     )?;
     let data = usize::try_from(values[9]).map_err(|_| TrainingError::ArithmeticOverflow)?;
     let memory = crate::TrainingMemoryPlan::candidate(data, limits.owned_memory_bytes())?;
-    let bytes = usize::try_from(values[10]).map_err(|_| TrainingError::ArithmeticOverflow)?;
+    let autograd_bytes =
+        usize::try_from(values[10]).map_err(|_| TrainingError::ArithmeticOverflow)?;
     let vals = usize::try_from(values[11]).map_err(|_| TrainingError::ArithmeticOverflow)?;
     let operations = usize::try_from(values[12]).map_err(|_| TrainingError::ArithmeticOverflow)?;
     let work = usize::try_from(values[13]).map_err(|_| TrainingError::ArithmeticOverflow)?;
-    let autograd = ResourceLimits::new(bytes, vals, operations, work);
-    if autograd.max_bytes() != bytes
+    let autograd = ResourceLimits::new(autograd_bytes, vals, operations, work);
+    if autograd.max_bytes() != autograd_bytes
         || autograd.max_values() != vals
         || autograd.max_operations() != operations
         || autograd.max_work() != work
     {
         return Err(TrainingError::Checkpoint("resource_limit_configuration"));
     }
+    let validation = if version == 1 {
+        crate::EvaluationLimits::default_for_source(limits.owned_memory_bytes())
+    } else {
+        crate::EvaluationLimits::new(
+            get_u64(bytes, 125),
+            get_u64(bytes, 133),
+            get_u64(bytes, 141),
+            usize::try_from(get_u64(bytes, 149)).map_err(|_| TrainingError::ArithmeticOverflow)?,
+            usize::try_from(get_u64(bytes, 157)).map_err(|_| TrainingError::ArithmeticOverflow)?,
+        )?
+    };
     Ok(RunSettings {
         limits,
         memory,
         autograd,
+        validation,
         clip,
     })
 }
@@ -1794,7 +1817,8 @@ fn decode_file(path: &Path, expected_digest: [u8; 32]) -> Result<CheckpointData>
         settings.autograd,
         settings.clip,
         seed,
-    )?;
+    )?
+    .with_validation_limits(settings.validation)?;
     let identity = RunIdentity::new(
         identity_fields.source,
         identity_fields.clean,
@@ -2010,7 +2034,12 @@ mod tests {
     fn streams_round_trip_and_reject_corruption_without_mutating_a_model() {
         let tokenizer = tokenizer();
         let identity = identity(&tokenizer);
-        let config = config();
+        let default_config = config();
+        let config = default_config
+            .with_validation_limits(
+                crate::EvaluationLimits::new(2, 4_096, 200_000_000, 32 << 20, 128).unwrap(),
+            )
+            .unwrap();
         config.validate(&identity, &tokenizer).unwrap();
         let model = Transformer::new(
             Config::RESEARCH_CANDIDATE,
@@ -2027,6 +2056,18 @@ mod tests {
         assert!(publication.durable);
         let loaded = CheckpointCodec::load(&path, &identity, config, &tokenizer).unwrap();
         assert_eq!(loaded.config, config);
+        assert_eq!(
+            loaded.config.validation_limits(),
+            crate::EvaluationLimits::new(2, 4_096, 200_000_000, 32 << 20, 128).unwrap()
+        );
+        let mut legacy_run_config = run_config_bytes(default_config);
+        legacy_run_config[..4].copy_from_slice(&1_u32.to_le_bytes());
+        assert_eq!(
+            parse_run_config(&legacy_run_config[..125])
+                .unwrap()
+                .validation,
+            crate::EvaluationLimits::default()
+        );
         assert_eq!(loaded.optimizer_step, 0);
         assert_eq!(loaded.cursor, 0);
         assert_eq!(loaded.digest, publication.sha256);

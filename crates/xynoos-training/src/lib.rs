@@ -5,6 +5,7 @@ mod checkpoint;
 mod config;
 mod data;
 mod error;
+mod evaluation;
 mod journal;
 mod memory;
 mod ownership;
@@ -19,6 +20,10 @@ pub use checkpoint::{
 pub use config::{MODEL_ID, RunIdentity, RunLimits, TrainingConfig};
 pub use data::{BatchSource, VecBatchSource};
 pub use error::{Result, TrainingError};
+pub use evaluation::{
+    EvaluationLimits, EvaluationReport, EvaluationStage, evaluate_batches,
+    evaluate_standard_dataset_split,
+};
 pub use journal::{JournalProgress, RunJournal};
 pub use memory::{MemoryPhase, TrainingMemoryPlan, TrainingRunBudget};
 pub use ownership::{AdvisoryLock, LockError};
