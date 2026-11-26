@@ -1,6 +1,6 @@
 # TASK 006-C3 — Independent Re-verification of TASK 006-R2
 
-**Audit outcome: R2 TECHNICAL FINDINGS CLOSED; C3 HOSTED AND INDEPENDENT-REVIEW GATES PENDING.** The three C2 findings and C3-F01 are closed in the current R2 revision. C3's auditor-authored tests pass in debug and release. The corrected R2 workflow passed on the exact R2 branch revision. The C3 branch adds five audit checks and updates the total to 170; its exact hosted run remains pending. A separate human/agent review is still required for independent acceptance.
+**Audit outcome: R2/C3 TECHNICAL AND HOSTED CHECKS PASSED; SEPARATE-REVIEW GATE PENDING.** The three C2 findings and C3-F01 are closed in the current R2 revision. C3's auditor-authored tests pass in debug and release, and the corrected R2 and C3 hosted workflows passed on their exact revisions. A separate human/agent review is still required for independent acceptance.
 
 This audit was performed on a separate audit branch after freezing R2. It adds auditor-authored process and fault-injection tests in [the C3 test module](../../crates/xynoos-training/tests/task006c3_independent.rs). The same autonomous agent authored both R2 and this audit. No second human or independent agent reviewed the implementation, so this is a separate verification pass, not independent organizational certification.
 
@@ -13,6 +13,7 @@ This audit was performed on a separate audit branch after freezing R2. It adds a
 | C3 process/fault tests | `e1f8b2c`, `e447f51`, and `3ab09a1` on `audit/task-006-c3-runtime-reverification` |
 | PR #21 | Open draft; no merge performed. |
 | Corrected exact R2 hosted run | Foundation CI `45772399582`, job `139747896665`, checked out exact SHA `21d9990760380195b9d9379b6d43f848ad6c17df`. All 29 steps succeeded, including corrected direct-test count, debug and release suites, all oracles and resource checks. The preceding run `45771271381` on `e6336e3` correctly exposed a stale expected count (164 versus 165 observed); `21d9990` corrected the assertion and CI passed. C3 expects 170 after five added audit tests; its exact hosted evidence remains pending. |
+| Exact C3 hosted run | Foundation CI `45772922015`, job `139749599697`, checked out exact SHA `228c0560224fb86e7f7f97343f708620d576f542`. All 29 steps succeeded. The direct-check assertion passed at 170 in both debug and release; the log reports 138 preserved, 12 prior R checks, 15 R2 checks and five C3 audit checks. |
 | Source status | The C3 working tree was clean for the recorded test commands. |
 | Training/compute boundary | No workflow dispatch, TASK 006-D experiment, external dataset acquisition, paid compute, Colab runtime, or public artifact upload occurred. One bounded Objective A CLI execution is part of the sidecar restart software test and is not a research experiment. |
 
@@ -46,11 +47,11 @@ The separate C3 fault test applies `RLIMIT_FSIZE=0` to the CLI child. Linux term
 
 - R2's 32 training-library tests, 4 CLI unit tests, 3 CLI process tests, 5 lock-process tests, and 1 compile-fail doctest passed locally in debug and release at `e6336e3…`.
 - The five C3 auditor-authored tests passed locally in debug and release after the API correction. Checkpoint semantics/publication, journal monotonicity, logging failures, optimizer transactions, resume equivalence, and resource accounting are also covered by existing package regressions and prior auditor-authored TASK 006-C controls.
-- The corrected R2 hosted run `45772399582` passed all steps on exact SHA `21d9990`. C3's workflow count is 170 after adding five C3 checks; that exact branch run remains pending.
+- The corrected R2 hosted run `45772399582` passed all steps on exact SHA `21d9990`. C3 hosted run `45772922015` passed all steps on exact SHA `228c056`, including the 170-check count for both profiles.
 - Local detached-session tests do not establish survival after GitHub runner cancellation, SSH disconnect, Colab CLI disconnect, remote artifact transfer, or provider cleanup.
 - Advisory-lock crash recovery depends on local Linux kernel/filesystem behavior. Power loss beyond requested file/directory syncs, network filesystems, and hostile directory races are not claimed.
 - Advisory locks are verified only for local Linux/POSIX filesystem behavior, not remote filesystem semantics or hostile directory replacement.
 
 ## Readiness recommendation
 
-**R2 technical remediation passed corrected hosted CI and C3's local checks.** C3's five audit tests and the full training package pass locally in debug and release. C3 hosted CI and review by someone separate from the implementation author remain necessary before treating this audit as independent acceptance.
+**R2 technical remediation and C3's technical checks passed hosted and local verification.** A reviewer separate from the implementation author must still inspect the frozen R2 diff and C3 evidence before treating this audit as independently accepted.

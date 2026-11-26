@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | C3-F01 | Medium | Closed in `e6336e3` | Public callers could self-assert `source_clean=true` through `RunIdentity` constructors. | The training crate now embeds build provenance, public attestation uses it internally, `SourceIdentity` fields are private, dataset-backed identity construction requires the opaque attestation, and unchecked construction is crate-private. Debug/release package regressions and a compile-fail doctest pass. |
 | C3-P01 | Acceptance blocker | Open | Implementation and C3 audit were performed by the same autonomous agent. The audit has a separate branch, code-free verification pass, and auditor-authored tests, but no independent human or agent reviewed the frozen R2 code. | Obtain review from a party separate from the implementation author before treating C3 as independent acceptance. |
-| C3-I01 | Informational | R2 hosted verification passed; C3 hosted verification pending | The initial R2 hosted workflow expected 164 and observed 165 direct checks. | The corrected R2 run `45772399582` passed on exact SHA `21d9990`. C3 expects 170 direct checks (165 R2 plus five C3 checks); exact C3 hosted verification remains pending. |
+| C3-I01 | Informational | Closed by exact hosted verification | The initial R2 hosted workflow expected 164 and observed 165 direct checks. | Corrected R2 run `45772399582` passed on exact SHA `21d9990`; C3 run `45772922015` passed the expected 170 checks on exact SHA `228c056` in debug and release. |
 
 ## Severity meaning
 
