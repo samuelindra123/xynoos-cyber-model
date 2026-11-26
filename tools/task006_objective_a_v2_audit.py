@@ -290,6 +290,7 @@ def build():
     answer_start_boundary_rows = []
     answer_start_unaligned_rows = []
     answer_end_boundary_positions = {}
+    answer_bearing_target_positions = {}
     expansions = token_expansions(merges)
     for row in documents:
         task = families[row["document_id"]]
@@ -351,6 +352,16 @@ def build():
             raise ValueError(f"task index token count mismatch: {row['document_id']}")
         if answer_prefix_counts[row["document_id"]] != task["answer_prefix_bpe_tokens"]:
             raise ValueError(f"task index answer position mismatch: {row['document_id']}")
+        bearing_positions = []
+        byte_offset = 0
+        for target_position, token in enumerate(tokens):
+            token_end = byte_offset + len(expansions[token])
+            if byte_offset < target_end and token_end > target_start:
+                bearing_positions.append(target_position)
+            byte_offset = token_end
+        if byte_offset != len(data) or not bearing_positions:
+            raise ValueError(f"answer-bearing token span is incomplete: {row['document_id']}")
+        answer_bearing_target_positions[row["document_id"]] = bearing_positions
     if any(not 31 <= value <= 62 for value in token_counts.values()):
         raise ValueError("a document does not create exactly one complete 32-target window")
     if any(value > 31 for value in answer_prefix_counts.values()):
@@ -431,6 +442,15 @@ def build():
         "answer_start_bpe_boundary_unaligned_document_ids": answer_start_unaligned_rows,
         "answer_end_bpe_boundary_aligned_count": len(answer_end_boundary_positions),
         "answer_end_bpe_position_max": max(answer_end_boundary_positions.values()),
+        "answer_bearing_target_positions": answer_bearing_target_positions,
+        "answer_bearing_supervised_targets_by_split": {
+            split: sum(
+                len(answer_bearing_target_positions[row["document_id"]])
+                for row in documents
+                if row["split"] == split
+            )
+            for split in SPLITS
+        },
         "answer_only_boundary_ready": not answer_start_unaligned_rows,
         "answers_appear_once_after_their_inputs": True,
         "all_answers_within_first_32_target_positions": True,
@@ -442,7 +462,7 @@ def build():
             f"{len(cross_near_duplicates)} cross-split pairs exceed the fixed {THRESHOLD:.2f} character-trigram similarity threshold because templates repeat; this remains a material template-leakage risk.",
             "Character-trigram similarity misses semantic leakage; the task index is needed to detect input-combination overlap.",
             "The tokenizer is fit only on the train split, but shared task vocabulary across splits is intentional and does not imply independent lexical domains.",
-            f"{len(answer_start_unaligned_rows)} answer starts fall inside a BPE token; the evaluator reports whole-sequence loss rather than answer-only loss.",
+            f"{len(answer_start_unaligned_rows)} answer starts fall inside a BPE token; answer-bearing loss includes the intersecting token and is not strict answer-only loss for those rows.",
             "A separate human quality review remains required before experiment admission.",
         ],
     }

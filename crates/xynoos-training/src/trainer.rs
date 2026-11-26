@@ -1338,7 +1338,9 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::io;
     use xynoos_autograd::{AdamWConfig, ResourceLimits};
-    use xynoos_data::{Batch, BatchConfig, DatasetLimits, ManifestValidator, Split, StreamConfig};
+    use xynoos_data::{
+        Batch, BatchConfig, Dataset, DatasetLimits, ManifestValidator, Split, StreamConfig,
+    };
     use xynoos_tokenizer::{Boundaries, TokenizerArtifact, TokenizerLimits};
 
     const DESIGN_HEAD: &str = "26777fa95383600c003ff094216d3d1c310b051c";
@@ -1516,6 +1518,90 @@ mod tests {
                 .unwrap()
             })
             .collect()
+    }
+
+    fn objective_a_v2_answer_bearing_batches(
+        dataset: &Dataset,
+        tokenizer: &Tokenizer,
+        split: Split,
+        audit: &Value,
+    ) -> Vec<Batch> {
+        let root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../datasets/task006-objective-a-v2");
+        let task_index: Value =
+            serde_json::from_slice(&fs::read(root.join("task-index.json")).unwrap()).unwrap();
+        let mut reader = dataset.reader(split);
+        let mut batches = Vec::new();
+        while let Some(document) = reader.next_document().unwrap() {
+            let document_id = document.record.document_id.as_str();
+            let task = task_index["examples"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["document_id"].as_str() == Some(document_id))
+                .unwrap_or_else(|| panic!("missing task index row for {document_id}"));
+            let answer_start =
+                usize::try_from(task["answer_start_byte_offset"].as_u64().unwrap()).unwrap();
+            let answer_end =
+                usize::try_from(task["target_end_byte_offset"].as_u64().unwrap()).unwrap();
+            let tokens = tokenizer
+                .encode_with_specials(
+                    &document.bytes,
+                    Boundaries {
+                        bos: true,
+                        eos: true,
+                    },
+                    TokenizerLimits::MAX,
+                )
+                .unwrap();
+            assert!(tokens.len() >= 33, "short token sequence for {document_id}");
+            let payload_token_count = tokens.len() - 2;
+            let mut answer_bearing_positions = Vec::new();
+            let mut byte_offset = 0usize;
+            let mut mask = [0_u8; 32];
+            for target_position in 0..payload_token_count {
+                let token_bytes = tokenizer
+                    .decode_bytes(
+                        &tokens[target_position + 1..target_position + 2],
+                        TokenizerLimits::MAX,
+                    )
+                    .unwrap();
+                let token_end = byte_offset.checked_add(token_bytes.len()).unwrap();
+                if byte_offset < answer_end && token_end > answer_start {
+                    assert!(target_position < mask.len());
+                    mask[target_position] = 1;
+                    answer_bearing_positions.push(target_position);
+                }
+                byte_offset = token_end;
+            }
+            assert_eq!(
+                byte_offset,
+                document.bytes.len(),
+                "token span for {document_id}"
+            );
+            let expected: Vec<usize> = audit["answer_bearing_target_positions"][document_id]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|position| usize::try_from(position.as_u64().unwrap()).unwrap())
+                .collect();
+            assert_eq!(
+                answer_bearing_positions, expected,
+                "independent token-span oracle for {document_id}"
+            );
+            batches.push(
+                Batch::from_parts(
+                    1,
+                    32,
+                    &tokens[..32],
+                    &tokens[1..33],
+                    Some(&[1_u8; 32]),
+                    Some(&mask),
+                )
+                .unwrap(),
+            );
+        }
+        batches
     }
 
     struct FailWriter {
@@ -2160,6 +2246,129 @@ mod tests {
         ] {
             println!(
                 "TASK006_D1_OBJECTIVE_A_V2_BASELINE {label}={}",
+                report.to_json()
+            );
+        }
+    }
+
+    #[test]
+    fn objective_a_v2_answer_bearing_baseline_matches_independent_token_spans() {
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
+        let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();
+        let audit: Value = serde_json::from_slice(
+            &fs::read(repository.join("../../tools/fixtures/task006-objective-a-v2-audit.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(audit["dataset_id"], dataset.manifest().dataset_id);
+        assert_eq!(audit["manifest_sha256"], hex(&dataset.manifest_sha256()));
+        assert_eq!(
+            audit["answer_start_bpe_boundary_unaligned_document_ids"]
+                .as_array()
+                .unwrap()
+                .len(),
+            8,
+            "the answer-bearing metric must preserve the known partial-token limitation"
+        );
+
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig::per_document(32, 1),
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let orders = [Split::Train, Split::Validation, Split::Test].map(|split| {
+            dataset
+                .fitted_batches(split, &fitted, stream)
+                .unwrap()
+                .order_identity()
+        });
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            orders[0],
+            orders[1],
+        )
+        .unwrap();
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            fitted.model(),
+            107,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let limits =
+            crate::EvaluationLimits::new(64, 2048, 8_000_000_000, 64 * 1024 * 1024, 32).unwrap();
+        let reports = [Split::Train, Split::Validation, Split::Test].map(|split| {
+            let batches =
+                objective_a_v2_answer_bearing_batches(&dataset, fitted.model(), split, &audit);
+            crate::evaluate_batches(
+                &model,
+                fitted.model(),
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                VecBatchSource::for_split(
+                    batches,
+                    orders[match split {
+                        Split::Train => 0,
+                        Split::Validation => 1,
+                        Split::Test => 2,
+                    }],
+                    split,
+                ),
+                limits,
+            )
+            .unwrap()
+        });
+
+        for (report, split, batches, consumed) in [
+            (&reports[0], Split::Train, 24, 768),
+            (&reports[1], Split::Validation, 12, 384),
+            (&reports[2], Split::Test, 12, 384),
+        ] {
+            let split_name = match split {
+                Split::Train => "train",
+                Split::Validation => "validation",
+                Split::Test => "test",
+            };
+            let expected_supervised = audit["answer_bearing_supervised_targets_by_split"]
+                [split_name]
+                .as_u64()
+                .unwrap();
+            assert_eq!(report.split, split);
+            assert_eq!(report.batch_count, batches);
+            assert_eq!(report.consumed_tokens, consumed);
+            assert_eq!(report.supervised_tokens, expected_supervised);
+            assert!(report.supervised_tokens > 0);
+            assert!(report.supervised_tokens < report.consumed_tokens);
+            assert!(report.coverage_complete);
+            assert!(report.all_evaluated_losses_finite);
+            assert!(report.mean_loss.unwrap().is_finite());
+        }
+        assert!(!reports[0].test_access && !reports[1].test_access);
+        assert!(reports[2].test_access);
+        assert_eq!(reports[0].model_state_sha256, reports[1].model_state_sha256);
+        assert_eq!(reports[1].model_state_sha256, reports[2].model_state_sha256);
+        for (split, report) in [
+            ("train", &reports[0]),
+            ("validation", &reports[1]),
+            ("locked_test_accessed", &reports[2]),
+        ] {
+            println!(
+                "TASK006_D1_ANSWER_BEARING_BASELINE {split}={}",
                 report.to_json()
             );
         }
