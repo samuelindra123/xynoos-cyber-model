@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md docs/reports/TASK-006-D1-SCIENTIFIC-EVALUATION.md docs/reports/TASK-006-D1-TEST-EVIDENCE.md docs/reports/TASK-006-D1-SPLIT-LEAKAGE-AUDIT.md docs/reports/TASK-006-D2-CHECKPOINT-PERSISTENCE.md docs/reports/TASK-006-D2-TEST-EVIDENCE.md docs/reports/TASK-006-D3-COMPUTE-READINESS.md research/README.md models/README.md datasets/README.md benchmarks/README.md experiments/README.md)
+          required=(README.md LICENSE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md .editorconfig .gitignore docs/ARCHITECTURE.md docs/ROADMAP.md docs/RESEARCH.md docs/DEVELOPMENT.md docs/COMPUTE_POLICY.md docs/DATASET_POLICY.md docs/EVALUATION.md docs/reports/TASK-006-D1-SCIENTIFIC-EVALUATION.md docs/reports/TASK-006-D1-TEST-EVIDENCE.md docs/reports/TASK-006-D1-SPLIT-LEAKAGE-AUDIT.md docs/reports/TASK-006-D2-CHECKPOINT-PERSISTENCE.md docs/reports/TASK-006-D2-TEST-EVIDENCE.md docs/reports/TASK-006-D3-COMPUTE-READINESS.md docs/reports/TASK-006-E-FIRST-TRAINING-READINESS.md research/README.md models/README.md datasets/README.md benchmarks/README.md experiments/README.md)
           for file in "${required[@]}"; do
             test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
           done
