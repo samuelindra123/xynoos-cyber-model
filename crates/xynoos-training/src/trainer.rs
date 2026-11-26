@@ -2166,6 +2166,130 @@ mod tests {
     }
 
     #[test]
+    fn objective_a_v2_manifest_runs_one_bounded_trainer_update() {
+        // This is an integration check for the native manifest-backed path,
+        // not evidence that one update is a scientifically sufficient run.
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
+        let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig::per_document(32, 1),
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let train_order = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let validation_order = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            train_order,
+            validation_order,
+        )
+        .unwrap();
+        let limits = RunLimits::new(
+            1,
+            1,
+            32,
+            32,
+            8_000_000_000,
+            ResourceLimits::MAX_BYTES,
+            Duration::from_secs(120),
+            Duration::from_secs(90),
+            1,
+            1,
+        )
+        .unwrap();
+        let config = TrainingConfig::new(
+            AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
+            LinearWarmupDecay::new(1, 0, 1e-3, 1e-4).unwrap(),
+            limits,
+            TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap(),
+            ResourceLimits::default(),
+            Some(1.0),
+            107,
+        )
+        .unwrap()
+        .with_validation_limits(
+            crate::EvaluationLimits::new(1, 1024, 250_000_000, 4 * 1024 * 1024, 32).unwrap(),
+        )
+        .unwrap();
+        let train = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap();
+        let mut validation = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap();
+        let root = root("objective-a-v2-smoke");
+        let mut trainer = Trainer::new(
+            &root,
+            identity,
+            config,
+            fitted.model(),
+            train,
+            StopToken::new(),
+        )
+        .unwrap();
+        let parameter_id = trainer.model().inventory().next().unwrap().1;
+        let before: Vec<u32> = trainer
+            .model()
+            .parameters()
+            .value(parameter_id)
+            .unwrap()
+            .data()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect();
+
+        let report = trainer.run(Some(&mut validation)).unwrap();
+
+        let after: Vec<u32> = trainer
+            .model()
+            .parameters()
+            .value(parameter_id)
+            .unwrap()
+            .data()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect();
+        assert_eq!(report.stop_reason, StopReason::ScheduleComplete);
+        assert_eq!(report.counters.completed_updates, 1);
+        assert_eq!(report.counters.committed_cursor, 1);
+        assert_eq!(report.counters.committed_consumed_tokens, 32);
+        assert_eq!(report.counters.committed_supervised_tokens, 32);
+        assert_eq!(report.counters.validation_supervised_tokens, 32);
+        assert_eq!(trainer.optimizer().step_count(), 1);
+        assert!(report.last_loss.is_some_and(f64::is_finite));
+        assert_ne!(
+            before, after,
+            "the manifest-backed update must change parameters"
+        );
+        let metrics = fs::read_to_string(root.join("metrics.jsonl")).unwrap();
+        assert!(metrics.contains("periodic-validation"));
+        assert!(!metrics.contains("locked-test"));
+        assert!(root.join("checkpoint.xyckpt").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn trainer_rejects_test_split_before_model_allocation() {
         let fixture = fixture();
         let tokenizer = tokenizer();
