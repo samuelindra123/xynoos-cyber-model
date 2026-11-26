@@ -1688,7 +1688,9 @@ mod tests {
         }
         assert_eq!(batches.len() % 2, 0, "Objective A split must pair evenly");
         batches
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| {
                 let mut inputs = [SpecialToken::Pad.id(); 32];
                 let mut targets = [SpecialToken::Pad.id(); 32];

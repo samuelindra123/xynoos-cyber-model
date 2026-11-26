@@ -78,8 +78,8 @@ fn manifest_train_only_fit_and_padded_split_streams_are_deterministic() {
             assert_eq!(batch.target().len(), 32);
             assert_eq!(batch.input()[0], SpecialToken::Bos.id());
             let valid = batch.valid_mask().unwrap();
-            assert!(valid.iter().any(|&value| value == 0));
-            assert!(valid.iter().any(|&value| value == 1));
+            assert!(valid.contains(&0));
+            assert!(valid.contains(&1));
             batches += 1;
         }
         let stats = stream.stats();
