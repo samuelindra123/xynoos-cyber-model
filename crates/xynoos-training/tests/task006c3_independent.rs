@@ -1,5 +1,6 @@
 use std::{
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
@@ -33,6 +34,7 @@ impl Scratch {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         Self(path)
     }
 }
@@ -122,6 +124,7 @@ fn independent_process_races_never_obtain_two_journal_owners() {
     let scratch = Scratch::new("ownership-race");
     let root = scratch.0.join("lineage");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     drop(RunJournal::open(&root, DIGEST, CheckpointCounters::default(), limits()).unwrap());
 
     for round in 0..12 {
@@ -183,6 +186,7 @@ fn independent_kernel_lock_blocks_journal_open_and_releases_after_process_exit()
     let scratch = Scratch::new("external-flock");
     let root = scratch.0.join("lineage");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     drop(RunJournal::open(&root, DIGEST, CheckpointCounters::default(), limits()).unwrap());
     let ready = scratch.0.join("python-owner-ready");
     let release = scratch.0.join("python-owner-release");
@@ -366,6 +370,7 @@ fn independent_sidecar_interruption_leaves_only_recoverable_staging() {
     fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     let root = scratch.0.join("artifact-root");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
 
     let python = r#"
 import resource, signal, subprocess, sys

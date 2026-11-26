@@ -1,6 +1,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -398,6 +399,7 @@ fn write_atomic(root: &Path, target: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&temp)?;
     let result = (|| {
         file.write_all(bytes)?;
@@ -429,6 +431,7 @@ fn duration_ns(value: Duration) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::AtomicU64;
 
     fn root() -> PathBuf {
@@ -439,6 +442,7 @@ mod tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
     }
 

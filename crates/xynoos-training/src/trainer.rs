@@ -1,6 +1,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -1256,6 +1257,7 @@ fn open_append_file(path: &Path) -> Result<File> {
     OpenOptions::new()
         .create(true)
         .append(true)
+        .mode(0o600)
         .open(path)
         .map_err(Into::into)
 }
@@ -1315,6 +1317,7 @@ fn write_json_atomic(root: &Path, path: &Path, value: &Value) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&temp)?;
     let result = (|| {
         serde_json::to_writer(&mut file, value).map_err(|_| TrainingError::AllocationFailed)?;
@@ -1337,6 +1340,7 @@ mod tests {
     use crate::{LinearWarmupDecay, RunLimits, TrainingMemoryPlan, VecBatchSource};
     use sha2::{Digest, Sha256};
     use std::io;
+    use std::os::unix::fs::PermissionsExt;
     use xynoos_autograd::{AdamWConfig, ResourceLimits};
     use xynoos_data::Batch;
     use xynoos_tokenizer::{TokenizerArtifact, TokenizerLimits};
@@ -1352,6 +1356,7 @@ mod tests {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
     }
 
