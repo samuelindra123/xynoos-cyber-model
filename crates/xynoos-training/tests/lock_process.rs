@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant},
@@ -83,6 +83,8 @@ fn spawn_worker(
         .env(WORKER_READY, ready)
         .env(WORKER_RESULT, result)
         .env(WORKER_MODE, mode)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .unwrap()
 }
