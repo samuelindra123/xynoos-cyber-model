@@ -129,7 +129,13 @@ fn json_stdout(output: &Output) -> Value {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).unwrap()
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+        panic!(
+            "successful command returned invalid JSON: {error}; stdout={}; stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
 }
 
 fn wait_for(timeout: Duration, mut predicate: impl FnMut() -> bool) {
@@ -296,7 +302,12 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
     wait_for_update(&root);
     let concurrent = cli("resume", Some(&config), &root, &["--detach"]);
     assert_eq!(concurrent.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&concurrent.stderr).contains("already active"));
+    let concurrent_error = String::from_utf8_lossy(&concurrent.stderr);
+    assert!(
+        concurrent_error.contains("owns admission")
+            || concurrent_error.contains("owns this experiment lineage"),
+        "unexpected concurrent resume error: {concurrent_error}"
+    );
     assert!(
         pid_alive(first_pid),
         "training process died with its launching controller"
@@ -438,6 +449,7 @@ fn concurrent_detached_launch_attempts_start_at_most_one_lineage_owner() {
     let (config, _) = setup(&scratch.0, "task006r-concurrent-launch");
     let root = scratch.0.join("concurrent-launch-root");
     fs::create_dir(&root).unwrap();
+    let _owner_cleanup = ArtifactProcessGuard(root.clone());
 
     let mut launchers = Vec::new();
     for _ in 0..4 {
@@ -530,6 +542,42 @@ fn validate_rejects_untrusted_source_configuration_and_over_budget_retained_meta
 }
 
 struct ProcessGuard(u32);
+
+struct ArtifactProcessGuard(PathBuf);
+
+impl Drop for ArtifactProcessGuard {
+    fn drop(&mut self) {
+        let Ok(identity) = fs::read_to_string(self.0.join("process.pid")) else {
+            return;
+        };
+        let fields: Vec<_> = identity.split_whitespace().collect();
+        if fields.len() != 4 || fields[0] != "XYNOOS-PROCESS-1" {
+            return;
+        }
+        let Ok(pid) = fields[1].parse::<u32>() else {
+            return;
+        };
+        let Ok(start_time) = fields[2].parse::<u64>() else {
+            return;
+        };
+        let Some(stat) = fs::read_to_string(format!("/proc/{pid}/stat")).ok() else {
+            return;
+        };
+        let actual_start = stat
+            .rsplit_once(") ")
+            .and_then(|(_, values)| values.split_whitespace().nth(19))
+            .and_then(|value| value.parse::<u64>().ok());
+        if actual_start == Some(start_time) {
+            let _ = Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .status();
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(2) && pid_alive(pid) {
+                thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+}
 
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
