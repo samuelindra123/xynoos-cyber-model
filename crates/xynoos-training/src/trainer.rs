@@ -1027,6 +1027,7 @@ impl<S: BatchSource> Trainer<S> {
                     "perplexity": report.perplexity,
                     "perplexity_overflow": report.perplexity_overflow,
                     "batch_count": report.batch_count,
+                    "coverage_complete": report.coverage_complete,
                     "consumed_tokens": report.consumed_tokens,
                     "supervised_tokens": report.supervised_tokens,
                     "validation_supervised_tokens": self.counters.validation_supervised_tokens,

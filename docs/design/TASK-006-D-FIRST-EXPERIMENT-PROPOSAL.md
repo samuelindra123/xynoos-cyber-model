@@ -30,7 +30,9 @@ validation accepts only the validation split; trainer construction accepts
 only the training split. The manifest-backed evaluator binds evaluation to the
 validated dataset and fitted tokenizer. Initial-weight baseline reports must
 cover train, validation, and test before training; the locked test must be
-evaluated after selection and must not influence training or selection.
+evaluated after selection and must not influence training or selection. A
+report marks a capped prefix with `coverage_complete: false`; partial-split
+reports cannot be used as full-split baselines or selection metrics.
 
 The checked-in two-batch validation pass uses 64 supervised targets. The
 earlier 24-update work estimate was based on one batch per validation event.

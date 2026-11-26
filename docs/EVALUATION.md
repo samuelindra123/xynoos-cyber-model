@@ -19,7 +19,9 @@ limits cover batch count, consumed tokens, forward work, source memory, and
 batch positions. It requires a stable source cursor, validates train and
 validation order identities, reports token-weighted cross entropy, and records
 the dataset, split, model state, tokenizer, evaluation policy, work, memory, and
-whether the test split was accessed. Empty-supervision batches are counted but
+whether the test split was accessed. If the batch cap stops before source EOF,
+the report sets `coverage_complete` to false; such a report is a bounded prefix,
+not a full-split baseline or selection metric. Empty-supervision batches are counted but
 do not contribute a loss; a split with no supervised targets reports no loss
 or perplexity. Test batches are rejected by periodic validation and by the
 trainer's training source admission.

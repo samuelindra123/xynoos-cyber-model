@@ -7,7 +7,6 @@ pub enum TrainingError {
     InvalidConfiguration,
     InvalidIdentity,
     EvaluationSplitMismatch,
-    EvaluationBatchLimit,
     EvaluationTokenLimit,
     EvaluationWorkLimit,
     NonFiniteEvaluation,

@@ -143,6 +143,8 @@ pub struct EvaluationReport {
     pub evaluation_config_sha256: String,
     pub evaluation_limits: EvaluationLimits,
     pub test_access: bool,
+    /// `false` means the ordered source had more batches than this pass cap.
+    pub coverage_complete: bool,
     pub batch_count: u64,
     pub consumed_tokens: u64,
     pub supervised_tokens: u64,
@@ -195,6 +197,7 @@ impl EvaluationReport {
                 "max_batch_positions": self.evaluation_limits.max_batch_positions,
             },
             "test_access": self.test_access,
+            "coverage_complete": self.coverage_complete,
             "batch_count": self.batch_count,
             "consumed_tokens": self.consumed_tokens,
             "supervised_tokens": self.supervised_tokens,
@@ -314,10 +317,12 @@ where
     let mut max_batch_forward_work = 0_u64;
     let mut max_batch_positions = 0_usize;
     let mut peak_reserved_bytes = source_bytes;
+    let mut source_exhausted = false;
 
     while batch_count < limits.max_batches {
         charge(EvaluationCharge::BatchRead)?;
         let Some(batch) = source.next_batch()? else {
+            source_exhausted = true;
             break;
         };
         let (positions, consumed, supervised) = count_batch(&batch)?;
@@ -372,12 +377,27 @@ where
         }
     }
 
-    if batch_count == limits.max_batches {
+    let coverage_complete = if source_exhausted {
+        true
+    } else if batch_count == limits.max_batches {
         charge(EvaluationCharge::BatchRead)?;
-        if source.next_batch()?.is_some() {
-            return Err(TrainingError::EvaluationBatchLimit);
+        let lookahead_bytes = limits
+            .max_batch_positions
+            .checked_mul(2 * std::mem::size_of::<u32>() + 2 * std::mem::size_of::<u8>())
+            .and_then(|bytes| bytes.checked_add(std::mem::size_of::<Batch>()))
+            .ok_or(TrainingError::ArithmeticOverflow)?;
+        let reserved = source.evaluation_reserved_bytes(lookahead_bytes)?;
+        if reserved > limits.max_source_bytes {
+            return Err(TrainingError::ResourceLimit {
+                requested: reserved,
+                limit: limits.max_source_bytes,
+            });
         }
-    }
+        peak_reserved_bytes = peak_reserved_bytes.max(reserved);
+        source.next_batch()?.is_none()
+    } else {
+        false
+    };
 
     let mean_loss = if supervised_tokens == 0 {
         None
@@ -425,6 +445,7 @@ where
         evaluation_config_sha256: hex(&evaluation_config_sha256),
         evaluation_limits: limits,
         test_access: split == Split::Test,
+        coverage_complete,
         batch_count,
         consumed_tokens,
         supervised_tokens,
@@ -662,6 +683,7 @@ mod tests {
         assert_eq!(report.evaluation_config_sha256.len(), 64);
         assert_eq!(report.to_json()["supervised_tokens"], 4);
         assert_eq!(report.to_json()["empty_supervision"], false);
+        assert!(report.coverage_complete);
     }
 
     #[test]
@@ -760,18 +782,17 @@ mod tests {
                 Split::Train,
             )
         };
-        assert_eq!(
-            evaluate_batches(
-                &model,
-                &tokenizer,
-                &identity,
-                EvaluationStage::InitialBaseline,
-                make_source(),
-                limits(1, 8, 100_000_000),
-            )
-            .err(),
-            Some(TrainingError::EvaluationBatchLimit)
-        );
+        let limited = evaluate_batches(
+            &model,
+            &tokenizer,
+            &identity,
+            EvaluationStage::InitialBaseline,
+            make_source(),
+            limits(1, 8, 100_000_000),
+        )
+        .unwrap();
+        assert_eq!(limited.batch_count, 1);
+        assert!(!limited.coverage_complete);
         assert_eq!(
             evaluate_batches(
                 &model,
