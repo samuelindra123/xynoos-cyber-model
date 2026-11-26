@@ -2166,9 +2166,9 @@ mod tests {
     }
 
     #[test]
-    fn objective_a_v2_manifest_runs_one_bounded_trainer_update() {
+    fn objective_a_v2_manifest_runs_two_bounded_trainer_updates() {
         // This is an integration check for the native manifest-backed path,
-        // not evidence that one update is a scientifically sufficient run.
+        // not evidence that two updates are scientifically sufficient.
         let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
         let memory =
@@ -2296,8 +2296,15 @@ mod tests {
             "the manifest-backed update must change parameters"
         );
         let metrics = fs::read_to_string(root.join("metrics.jsonl")).unwrap();
-        assert!(metrics.contains("periodic-validation"));
-        assert!(!metrics.contains("locked-test"));
+        assert_eq!(
+            metrics
+                .lines()
+                .filter(|line| line.contains("\"type\":\"validation\""))
+                .count(),
+            2
+        );
+        assert!(metrics.contains("\"test_access\":false"));
+        assert!(!metrics.contains("\"test_access\":true"));
         assert!(root.join("checkpoint.xyckpt").is_file());
         fs::remove_dir_all(root).unwrap();
     }
