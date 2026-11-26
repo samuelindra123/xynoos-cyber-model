@@ -79,7 +79,7 @@ the score.
 ## Answer-bearing unchanged-weight baseline
 
 The follow-up native test at clean source revision
-`1673234f12694880eb4355e2b8695c5447fd7049` builds loss masks from each task's
+`d8e4d7df6d5a919acf2002783ed59af39e86d67f` builds loss masks from each task's
 answer byte span. A separate standard-library audit implementation derives
 the expected BPE positions; the Rust test compares every document mask against
 that fixture before evaluating. This is a cross-implementation check, not an
@@ -98,10 +98,11 @@ All reports reuse the unchanged state digest
 `470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44` and
 record finite losses and complete split coverage. The audit-position fixture
 digest is
-`1a7b328bf1311c59bc21c1e21d0eaed1e0c8340b886742c204fdb9180148aa5c`. The
-release test took 10.06 seconds after compilation; the debug test took 74.36
-seconds. These are test-process times, not a full training workload or
-three-run provider measurement. The mask is test-only evaluation support; the
+`1a7b328bf1311c59bc21c1e21d0eaed1e0c8340b886742c204fdb9180148aa5c`. In the
+repeated clean-source run, the release test took 10.23 seconds after
+compilation and the debug test took 78.88 seconds (an earlier debug sample
+took 74.36 seconds). These are test-process times, not a full training
+workload or three-run provider measurement. The mask is test-only evaluation support; the
 manifest training stream still supervises all next-token positions. This
 baseline improves visibility into task answers but does not demonstrate that
 training improves held-out answers.

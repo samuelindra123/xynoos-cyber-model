@@ -4,7 +4,7 @@
 |---|---|
 | Historical D1 implementation revision | `da99cba3016b7fe564c42e65d8d2babe44b3b98f` |
 | Previous full Objective A v2 baseline source | `4a83c68a199d8844e2d01038bd5d94d8dc377959` |
-| Answer-bearing baseline test source | `1673234f12694880eb4355e2b8695c5447fd7049` |
+| Answer-bearing baseline test source | `d8e4d7df6d5a919acf2002783ed59af39e86d67f` |
 | Working tree | Clean for the answer-bearing debug and release tests at the source revision above. |
 
 ## Executed Rust checks
@@ -13,8 +13,8 @@
 |---|---|
 | `cargo test --workspace --locked --offline -- --show-output` | Passed, 178 tests/doctests, 0 failures |
 | `cargo test --workspace --release --locked --offline -- --show-output` | Passed, 178 tests/doctests, 0 failures |
-| `cargo test -p xynoos-training objective_a_v2_answer_bearing_baseline_matches_independent_token_spans --locked --offline -- --show-output` | Passed at `1673234`, 1 test; 48 answer-span masks matched the audit-position fixture; 74.36 s debug test time (test has since been renamed) |
-| `cargo test -p xynoos-training --release objective_a_v2_answer_bearing_baseline_matches_independent_token_spans --locked --offline -- --show-output` | Passed at `1673234`, 1 test; 10.06 s test time after compilation (test has since been renamed) |
+| `cargo test -p xynoos-training objective_a_v2_answer_bearing_baseline_matches_audit_position_fixture --locked --offline -- --show-output` | Passed at `d8e4d7d`, 1 test; 48 answer-span masks matched the audit-position fixture; 78.88 s debug test time |
+| `cargo test -p xynoos-training --release objective_a_v2_answer_bearing_baseline_matches_audit_position_fixture --locked --offline -- --show-output` | Passed at `d8e4d7d`, 1 test; 10.23 s test time after compilation |
 | `cargo check -p xynoos-training --tests --locked --offline` | Passed at the implementation candidate before its clean-source run |
 | `python3 tools/task006_objective_a_v2_audit.py --check` | Passed; answer-position fixture SHA-256 `1a7b328bf1311c59bc21c1e21d0eaed1e0c8340b886742c204fdb9180148aa5c` |
 | `cargo test -p xynoos-training --locked --offline --test cli_process detached_process_survives_controller_exit_supports_stop_status_resume_and_crash_recovery -- --exact --show-output` | Passed; stop, status, resume, and crash-recovery lifecycle retained |
@@ -36,7 +36,7 @@ The answer-bearing follow-up is an additional unchanged-weight baseline on the
 same manifest-backed corpus, not a training experiment. Its masks were
 cross-checked against a separately implemented Python standard-library audit;
 this code-level comparison does not replace external human review. At source
-`1673234`, it reports 89/46/46 answer-bearing targets for train/validation/test
+`d8e4d7d`, it reports 89/46/46 answer-bearing targets for train/validation/test
 and finite loss on every split. The test split is still public and accessed
 only by the explicitly tagged baseline evaluator.
 
