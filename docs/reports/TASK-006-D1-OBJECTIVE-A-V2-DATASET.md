@@ -55,8 +55,9 @@ performed.
 | Test | 12 | 384 | 5.697565953 | 298.140828 | 802,737,072 | yes | yes |
 
 All losses were finite, and every split report has the same model-state digest.
-The test split was evaluated once and marked accessed; it was not used for
-tokenizer fitting, training, or learning-rate selection. The full sequence
+The test split is read by the baseline evaluation and every test report marks
+`test_access: true`; it is not used for tokenizer fitting, training, or
+learning-rate selection. The full sequence
 cross entropy is not answer-only accuracy, so it does not establish transfer
 on the task labels. The release-profile baseline test completed in 11.60
 seconds after compilation. This evaluation is software verification, not a
