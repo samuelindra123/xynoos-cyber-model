@@ -161,7 +161,12 @@ fn independent_process_races_never_obtain_two_journal_owners() {
                     .is_ok_and(|value| value == "contended"))
                 .count(),
             5,
-            "round {round} did not reject every non-owner"
+            "round {round} did not reject every non-owner; observed results: {:?}",
+            evidence
+                .iter()
+                .map(|(_, result)| fs::read_to_string(result)
+                    .unwrap_or_else(|error| format!("<unreadable: {error}>")))
+                .collect::<Vec<_>>()
         );
         fs::write(&release, b"release owner\n").unwrap();
         for mut worker in workers {
