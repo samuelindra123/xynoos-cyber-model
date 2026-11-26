@@ -36,22 +36,37 @@ repository is public, artifacts are accessible to repository readers. No
 weights are stored in the runner artifact service, and the ephemeral runner
 filesystem is not a recovery store. [Artifact access](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)
 
+The exact D1 candidate Foundation CI run `45823059589` also exercised the
+bounded two-update Objective A v1 software control on `ubuntu-24.04`: the
+release test reported 46.104 supervised targets/second, application-owned
+peak 42,439,416 bytes, autograd-ledger peak 30,682,296 bytes, and process
+high-water 121,409,536 bytes. This is one short regression sample on the
+hosted runner, not a measurement of the v2 candidate training workload or a
+throughput guarantee.
+
 ## Colab CLI and provider state
 
-Read-only inspection of the installed official CLI reported version `0.8.0`.
-Its actual help exposes CPU/GPU/TPU runtime creation, `run`, `exec`, `ssh`,
-file `upload`/`download`, `sessions`, `status`, `stop`, and `usage`. No runtime
-was created. The read-only session listing reported no active sessions. The
-usage command was inspected; account balance details are intentionally not
-recorded in the repository.
+Read-only inspection used the installed CLI's `colab version` command and
+reported version `0.8.0`. Its actual `new` and `run` help says CPU is the
+default when no accelerator is requested; the current CLI lists GPUs T4, L4,
+G4, H100, and A100, and TPUs V5E1 and V6E1, subject to availability. Help was
+also inspected for `exec`, `ssh`, file `upload`/`download`, `sessions`,
+`status`, `stop`, and `usage`. `colab sessions` reported no active sessions.
+`colab usage` was read-only and showed no active assignments; account balance
+details are intentionally not recorded in the repository. No runtime was
+created.
 
 The installed CLI's `run` command accepts a local **Python script**, creates
 a fresh VM, and releases that VM after completion unless `--keep` is used.
-`ssh` can run a command on an existing session and supports an option to stop
-some auto-created sessions on disconnect. The official SSH guidance warns
-that interrupting the local SSH command can leave the remote command running.
-`upload` and `download` move files to/from a session filesystem, but the CLI
-inspection did not demonstrate checksummed, atomic checkpoint persistence.
+`ssh -- CMD` runs against an existing session and exits when the remote command
+ends; an interactive bare `ssh` may create a session if none exists, so neither
+form was invoked. The CLI documents `--rm` for an auto-created interactive
+session or proxy-mode disconnect, but says it is ignored for one-shot `-- CMD`.
+The official SSH guidance warns that interrupting the local SSH command can
+leave the remote command running. Colab also states that VMs can be deleted
+after idle time and have a service-enforced maximum lifetime. `upload` and
+`download` move files to/from a session filesystem, but the CLI inspection did
+not demonstrate checksummed, atomic checkpoint persistence.
 The XYNOOS runtime is native Rust; running it on Colab would require a
 separately tested remote build/command path, data transfer, persistence, and
 cleanup protocol.
@@ -80,12 +95,14 @@ software-test observations, not a larger-dataset benchmark or an
 Actions/Colab provider guarantee.
 
 The profile difference is material. A linear 768-target projection is about
-375 seconds using the debug rate and 40.6 seconds using the release rate.
-Only the release profile corresponds to the training workflow's build mode,
-but this projection omits the exact 24-update cadence, eight validation
-passes, five checkpoints, initialization, and runner variability. The full
-candidate configuration has not been timed three times on the hosted runner,
-so the current 120-second runtime cap is not yet shown to fit or fail.
+375 seconds using the local debug rate and 40.6 seconds using the local
+release rate. The hosted release sample is 46.104 targets/second, but it is
+the same two-update v1 fixture, not a full Objective A v2 workload. These
+projections omit the exact 24-update cadence, eight validation passes, five
+checkpoints, initialization, baseline and test evaluations, and runner
+variability. The full candidate configuration has not been timed three times
+on the hosted runner, so the current 120-second runtime cap is not yet shown
+to fit or fail.
 
 The earlier TASK 006-R optimized measurement of about 40 targets/second came
 from a different source revision and evaluation setup. It is retained as
@@ -112,6 +129,13 @@ scientific sufficiency, or evidence of cybersecurity learning. Current
 throughput has not been measured repeatedly on the candidate provider with
 the proposed full workload. It does not justify increasing the runtime cap
 or switching to a GPU.
+
+The Objective A v2 unchanged-weight full-split baseline itself requires
+3,210,948,288 forward-work units. Combining it with that retired 24-update
+proposal yields 10,993,263,904 units, exceeding the 8-billion ceiling by
+2,993,263,904 before other recovery costs. The earlier sweep proposal cannot
+be used; no update schedule is admitted until the dataset and held-out
+evaluation are accepted and the full workload is re-budgeted.
 
 ## Deterministic workload-admission policy
 
