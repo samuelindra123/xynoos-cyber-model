@@ -2171,7 +2171,20 @@ mod tests {
         // not evidence that one update is a scientifically sufficient run.
         let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
-        let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();
+        let memory =
+            TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap();
+        let mut data_limits = DatasetLimits::MAX;
+        let per_stream_dataset_bytes = memory.dataset_buffer_bytes() / 2;
+        let document_bytes = (per_stream_dataset_bytes / 2).max(1);
+        let stream_buffer = per_stream_dataset_bytes - document_bytes;
+        data_limits.metadata_bytes = memory.dataset_metadata_bytes();
+        data_limits.document_bytes = document_bytes;
+        data_limits.reader_bytes = memory.reader_buffer_bytes() / 2;
+        data_limits.token_buffer_bytes = stream_buffer;
+        data_limits.sequence_length = 32;
+        data_limits.batch_size = 1;
+        data_limits.batch_positions = 32;
+        let dataset = ManifestValidator::open(&dataset_root, data_limits).unwrap();
         let fitted = dataset
             .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
             .unwrap();
@@ -2222,7 +2235,7 @@ mod tests {
             AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
             LinearWarmupDecay::new(2, 0, 1e-3, 1e-4).unwrap(),
             limits,
-            TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap(),
+            memory,
             ResourceLimits::default(),
             Some(1.0),
             107,
