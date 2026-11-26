@@ -2123,14 +2123,15 @@ mod tests {
             )
             .unwrap(),
         ];
-        for (report, split, batches, targets) in [
-            (&reports[0], Split::Train, 24, 768),
-            (&reports[1], Split::Validation, 12, 384),
-            (&reports[2], Split::Test, 12, 384),
+        for (report, split, batches, targets, mean_loss) in [
+            (&reports[0], Split::Train, 24, 768, 5.696532328923543),
+            (&reports[1], Split::Validation, 12, 384, 5.704625407854716),
+            (&reports[2], Split::Test, 12, 384, 5.697565952936809),
         ] {
             assert_eq!(report.split, split);
             assert_eq!(report.batch_count, batches);
             assert_eq!(report.supervised_tokens, targets);
+            assert_eq!(report.mean_loss, Some(mean_loss));
             assert!(report.coverage_complete);
             assert!(report.all_evaluated_losses_finite);
             assert!(report.mean_loss.unwrap().is_finite());
@@ -2138,8 +2139,20 @@ mod tests {
         assert!(!reports[0].test_access && !reports[1].test_access);
         assert!(reports[2].test_access);
         assert_eq!(reports[0].model_parameter_count, 914_400);
+        assert_eq!(
+            reports[0].dataset_manifest_sha256,
+            "b3574cbcd769359ae4fc7ec4ff3f4df4f8fc5351cb004944826f87f9c38cfac1"
+        );
+        assert_eq!(
+            reports[0].tokenizer_artifact_sha256,
+            "a5a6e350d0863af2a41aeae9a73a6e07d304513f243d293c79e91eb61f39bd09"
+        );
         assert_eq!(reports[0].model_state_sha256, reports[1].model_state_sha256);
         assert_eq!(reports[1].model_state_sha256, reports[2].model_state_sha256);
+        assert_eq!(
+            reports[0].model_state_sha256,
+            "470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44"
+        );
         for (label, report) in [
             ("train", &reports[0]),
             ("validation", &reports[1]),

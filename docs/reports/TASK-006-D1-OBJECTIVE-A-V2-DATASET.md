@@ -31,7 +31,36 @@ This is Objective A only: a small deterministic software control over three auth
 
 The native data integration test opens the manifest, fits and verifies the tokenizer from train only, checks the saved fit record and artifact, and streams all three splits deterministically. It verifies 24/12/12 complete batches of 32 supervised targets and matching repeatable order identities.
 
-An unchanged-weight manifest-backed baseline is being run as a software evaluation control. Its exact source revision, model-state identity, per-split losses, supervised counts, complete-coverage flags, and locked-test access record will be added after the clean-revision run. This evaluation does not dispatch or constitute training.
+## Unchanged-weight baseline
+
+The native evaluator completed a manifest-backed baseline at the clean source
+revision `ffbc52f2957503676f51559f612d1e548adfdd8f`. It initialized the
+research candidate with seed 107 and reused the same unchanged weights for
+train, validation, and test. No optimizer was constructed and no update was
+performed.
+
+| Identity or metric | Value |
+|---|---|
+| Model | `xynoos-cyber-0.1`, vocab 292, width 96, 8 layers, 4 heads, FFN 256, context 128 |
+| Parameter count | 914,400 |
+| Initial model-state SHA-256 | `470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44` |
+| Source | `samuelindra123/xynoos-cyber-model`, clean at the source revision above |
+| Stream | BPE 32-merge train fit; BOS/EOS; sequence length 32; batch 1; per-document deterministic order |
+| Evaluation limits | 64 batches, 2,048 consumed tokens, 8,000,000,000 forward-work units, 64 MiB source, 32 batch positions |
+
+| Split | Batches | Supervised targets | Mean cross entropy | Perplexity | Forward work | Complete | Test access |
+|---|---:|---:|---:|---:|---:|---|---|
+| Train | 24 | 768 | 5.696532329 | 297.832822 | 1,605,474,144 | yes | no |
+| Validation | 12 | 384 | 5.704625408 | 300.252987 | 802,737,072 | yes | no |
+| Test | 12 | 384 | 5.697565953 | 298.140828 | 802,737,072 | yes | yes |
+
+All losses were finite, and every split report has the same model-state digest.
+The test split was evaluated once and marked accessed; it was not used for
+tokenizer fitting, training, or learning-rate selection. The full sequence
+cross entropy is not answer-only accuracy, so it does not establish transfer
+on the task labels. The release-profile baseline test completed in 11.68
+seconds after compilation. This evaluation is software verification, not a
+training run or evidence of cybersecurity capability.
 
 ## Reproduction
 
@@ -39,6 +68,7 @@ An unchanged-weight manifest-backed baseline is being run as a software evaluati
 python3 tools/task006_objective_a_v2.py --check
 python3 tools/task006_objective_a_v2_audit.py --check
 cargo test -p xynoos-data --test task006_objective_a_v2 --locked --offline
+cargo test -p xynoos-training --release objective_a_v2_manifest_baseline_covers_all_task_rows --locked --offline -- --show-output
 ```
 
 The full training configuration is not approved by this report. Do not use this corpus as proof of cybersecurity intelligence or treat test visibility as protected holdout evaluation.
