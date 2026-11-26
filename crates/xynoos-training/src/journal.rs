@@ -8,11 +8,20 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::{CheckpointCounters, Result, RunLimits, TrainingError, runtime::validate_root};
+use crate::{
+    AdvisoryLock, CheckpointCounters, LockError, Result, RunLimits, TrainingError,
+    runtime::validate_root,
+};
 
 const MAGIC: &[u8; 8] = b"XYNOOSJ1";
 const PREFIX: usize = 96;
 const FILE_BYTES: usize = PREFIX + 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenMode {
+    CreateIfMissing,
+    RequireExisting,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JournalProgress {
@@ -29,7 +38,7 @@ pub struct JournalProgress {
 pub struct RunJournal {
     root: PathBuf,
     path: PathBuf,
-    _lock: LockFile,
+    _lock: AdvisoryLock,
     config_digest: [u8; 32],
     progress: JournalProgress,
     limits: RunLimits,
@@ -45,37 +54,61 @@ impl RunJournal {
         checkpoint: CheckpointCounters,
         limits: RunLimits,
     ) -> Result<Self> {
+        Self::open_mode(
+            root,
+            config_digest,
+            checkpoint,
+            limits,
+            OpenMode::CreateIfMissing,
+        )
+    }
+
+    /// Open a lineage for resume. A missing journal is an error: checkpoint
+    /// counters cannot reconstruct precharged work that happened after it.
+    pub fn open_existing(
+        root: &Path,
+        config_digest: [u8; 32],
+        checkpoint: CheckpointCounters,
+        limits: RunLimits,
+    ) -> Result<Self> {
+        Self::open_mode(
+            root,
+            config_digest,
+            checkpoint,
+            limits,
+            OpenMode::RequireExisting,
+        )
+    }
+
+    fn open_mode(
+        root: &Path,
+        config_digest: [u8; 32],
+        checkpoint: CheckpointCounters,
+        limits: RunLimits,
+        mode: OpenMode,
+    ) -> Result<Self> {
         validate_root(root)?;
         let lock_path = root.join(".run.lock");
-        let lock = acquire_lock(&lock_path)?;
+        let lock = AdvisoryLock::acquire(&lock_path).map_err(|error| match error {
+            LockError::Contended => TrainingError::RunLockContended,
+            LockError::RecoveryFailure(kind) => TrainingError::RunLockRecoveryFailure(kind),
+        })?;
         let path = root.join("run.journal");
         validate_regular_or_missing(&path)?;
-        let mut progress = match read_journal(&path, config_digest)? {
-            Some(progress) => progress,
-            None => JournalProgress {
-                attempted_consumed_tokens: checkpoint.attempted_consumed_tokens,
-                attempted_supervised_tokens: checkpoint.attempted_supervised_tokens,
-                cumulative_work: checkpoint.cumulative_work,
-                active_runtime_ns: checkpoint.cumulative_runtime_ns,
-                reserved_runtime_ns: 0,
-                attempted_updates: checkpoint.attempted_updates,
-                checkpoint_sequence: checkpoint.checkpoint_sequence,
-            },
-        };
-        progress.attempted_consumed_tokens = progress
-            .attempted_consumed_tokens
-            .max(checkpoint.attempted_consumed_tokens);
-        progress.attempted_supervised_tokens = progress
-            .attempted_supervised_tokens
-            .max(checkpoint.attempted_supervised_tokens);
-        progress.cumulative_work = progress.cumulative_work.max(checkpoint.cumulative_work);
-        progress.attempted_updates = progress.attempted_updates.max(checkpoint.attempted_updates);
-        progress.checkpoint_sequence = progress
-            .checkpoint_sequence
-            .max(checkpoint.checkpoint_sequence);
-        if progress.active_runtime_ns < checkpoint.cumulative_runtime_ns {
-            progress.active_runtime_ns = checkpoint.cumulative_runtime_ns;
+        let loaded = read_journal(&path, config_digest)?;
+        if loaded.is_none() && mode == OpenMode::RequireExisting {
+            return Err(TrainingError::Checkpoint("run_journal_missing_for_resume"));
         }
+        let mut progress = loaded.unwrap_or(JournalProgress {
+            attempted_consumed_tokens: checkpoint.attempted_consumed_tokens,
+            attempted_supervised_tokens: checkpoint.attempted_supervised_tokens,
+            cumulative_work: checkpoint.cumulative_work,
+            active_runtime_ns: checkpoint.cumulative_runtime_ns,
+            reserved_runtime_ns: 0,
+            attempted_updates: checkpoint.attempted_updates,
+            checkpoint_sequence: checkpoint.checkpoint_sequence,
+        });
+        validate_progress(progress, checkpoint, limits)?;
         if progress.reserved_runtime_ns != 0 {
             progress.active_runtime_ns = progress
                 .active_runtime_ns
@@ -98,36 +131,28 @@ impl RunJournal {
         Ok(journal)
     }
 
+    /// Read and validate a lineage without acquiring a run lock or writing it.
+    pub fn inspect(
+        root: &Path,
+        config_digest: [u8; 32],
+        limits: RunLimits,
+    ) -> Result<JournalProgress> {
+        validate_root(root)?;
+        let path = root.join("run.journal");
+        validate_regular_or_missing(&path)?;
+        let progress = read_journal(&path, config_digest)?
+            .ok_or(TrainingError::Checkpoint("run_journal_missing"))?;
+        validate_progress(progress, CheckpointCounters::default(), limits)?;
+        Ok(progress)
+    }
+
     pub fn progress(&self) -> JournalProgress {
         self.progress
     }
 
     pub fn reconcile_checkpoint(&mut self, checkpoint: CheckpointCounters) -> Result<()> {
-        self.progress.attempted_consumed_tokens = self
-            .progress
-            .attempted_consumed_tokens
-            .max(checkpoint.attempted_consumed_tokens);
-        self.progress.attempted_supervised_tokens = self
-            .progress
-            .attempted_supervised_tokens
-            .max(checkpoint.attempted_supervised_tokens);
-        self.progress.cumulative_work = self
-            .progress
-            .cumulative_work
-            .max(checkpoint.cumulative_work);
-        self.progress.attempted_updates = self
-            .progress
-            .attempted_updates
-            .max(checkpoint.attempted_updates);
-        self.progress.checkpoint_sequence = self
-            .progress
-            .checkpoint_sequence
-            .max(checkpoint.checkpoint_sequence);
-        self.progress.active_runtime_ns = self
-            .progress
-            .active_runtime_ns
-            .max(checkpoint.cumulative_runtime_ns);
-        self.persist()
+        validate_progress(self.progress, checkpoint, self.limits)?;
+        Ok(())
     }
 
     /// Reserve at most one attempt's full runtime before admitting any work.
@@ -296,16 +321,33 @@ impl RunJournal {
     }
 }
 
-#[derive(Debug)]
-struct LockFile {
-    path: PathBuf,
-    _file: File,
-}
-
-impl Drop for LockFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+fn validate_progress(
+    progress: JournalProgress,
+    checkpoint: CheckpointCounters,
+    limits: RunLimits,
+) -> Result<()> {
+    let max_runtime = duration_ns(limits.max_runtime())?;
+    let active_and_reserved = progress
+        .active_runtime_ns
+        .checked_add(progress.reserved_runtime_ns)
+        .ok_or(TrainingError::ArithmeticOverflow)?;
+    if progress.attempted_consumed_tokens < checkpoint.attempted_consumed_tokens
+        || progress.attempted_supervised_tokens < checkpoint.attempted_supervised_tokens
+        || progress.cumulative_work < checkpoint.cumulative_work
+        || progress.active_runtime_ns < checkpoint.cumulative_runtime_ns
+        || progress.attempted_updates < checkpoint.attempted_updates
+        || progress.checkpoint_sequence < checkpoint.checkpoint_sequence
+        || progress.attempted_supervised_tokens > progress.attempted_consumed_tokens
+        || progress.attempted_consumed_tokens > limits.consumed_tokens()
+        || progress.attempted_supervised_tokens > limits.supervised_tokens()
+        || progress.cumulative_work > limits.cumulative_work()
+        || progress.attempted_updates > limits.max_updates()
+        || progress.reserved_runtime_ns > duration_ns(limits.max_attempt_runtime())?
+        || active_and_reserved > max_runtime
+    {
+        return Err(TrainingError::Checkpoint("run_journal_counter_progression"));
     }
+    Ok(())
 }
 
 fn read_journal(path: &Path, digest: [u8; 32]) -> Result<Option<JournalProgress>> {
@@ -378,37 +420,6 @@ fn validate_regular_or_missing(path: &Path) -> Result<()> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
-}
-
-fn acquire_lock(path: &Path) -> Result<LockFile> {
-    for _ in 0..2 {
-        match OpenOptions::new().write(true).create_new(true).open(path) {
-            Ok(mut file) => {
-                writeln!(file, "{}", std::process::id())?;
-                file.sync_all()?;
-                return Ok(LockFile {
-                    path: path.to_path_buf(),
-                    _file: file,
-                });
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let metadata = fs::symlink_metadata(path)?;
-                if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 32 {
-                    return Err(TrainingError::InvalidConfiguration);
-                }
-                let pid = fs::read_to_string(path)?
-                    .trim()
-                    .parse::<u32>()
-                    .map_err(|_| TrainingError::InvalidConfiguration)?;
-                if Path::new("/proc").join(pid.to_string()).exists() {
-                    return Err(TrainingError::InvalidConfiguration);
-                }
-                fs::remove_file(path)?;
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(TrainingError::InvalidConfiguration)
 }
 
 fn duration_ns(value: Duration) -> Result<u64> {
@@ -489,6 +500,88 @@ mod tests {
                 "run_journal_identity_or_checksum"
             ))
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resume_and_status_fail_closed_when_journal_is_missing() {
+        let root = root();
+        assert!(matches!(
+            RunJournal::open_existing(&root, [8; 32], CheckpointCounters::default(), limits()),
+            Err(TrainingError::Checkpoint("run_journal_missing_for_resume"))
+        ));
+        assert!(!root.join("run.journal").exists());
+        assert!(matches!(
+            RunJournal::inspect(&root, [8; 32], limits()),
+            Err(TrainingError::Checkpoint("run_journal_missing"))
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn older_checkpoint_cannot_refund_journal_precharges_or_runtime_reservation() {
+        let root = root();
+        let digest = [0x42; 32];
+        let mut journal =
+            RunJournal::open(&root, digest, CheckpointCounters::default(), limits()).unwrap();
+        journal.begin_attempt().unwrap();
+        journal.precharge_microbatch(32, 20, 300).unwrap();
+        drop(journal);
+
+        let recovered =
+            RunJournal::open_existing(&root, digest, CheckpointCounters::default(), limits())
+                .unwrap();
+        assert_eq!(recovered.progress().attempted_consumed_tokens, 32);
+        assert_eq!(recovered.progress().attempted_supervised_tokens, 20);
+        assert_eq!(recovered.progress().cumulative_work, 300);
+        assert_eq!(
+            recovered.progress().active_runtime_ns,
+            Duration::from_secs(10).as_nanos() as u64
+        );
+        assert_eq!(recovered.progress().reserved_runtime_ns, 0);
+        drop(recovered);
+
+        let incompatible = CheckpointCounters {
+            attempted_consumed_tokens: 33,
+            ..CheckpointCounters::default()
+        };
+        assert!(matches!(
+            RunJournal::open_existing(&root, digest, incompatible, limits()),
+            Err(TrainingError::Checkpoint("run_journal_counter_progression"))
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checksum_valid_invalid_counter_progression_is_rejected_read_only() {
+        let root = root();
+        let digest = [0x6a; 32];
+        drop(RunJournal::open(&root, digest, CheckpointCounters::default(), limits()).unwrap());
+        let path = root.join("run.journal");
+        let mut bytes = fs::read(&path).unwrap();
+        // attempted_supervised_tokens > attempted_consumed_tokens.
+        bytes[48..56].copy_from_slice(&1_u64.to_le_bytes());
+        let checksum: [u8; 32] = Sha256::digest(&bytes[..PREFIX]).into();
+        bytes[PREFIX..].copy_from_slice(&checksum);
+        fs::write(&path, bytes).unwrap();
+        assert!(matches!(
+            RunJournal::inspect(&root, digest, limits()),
+            Err(TrainingError::Checkpoint("run_journal_counter_progression"))
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn simultaneous_live_lineage_open_is_rejected() {
+        let root = root();
+        let live =
+            RunJournal::open(&root, [0x71; 32], CheckpointCounters::default(), limits()).unwrap();
+        assert_eq!(
+            RunJournal::open_existing(&root, [0x71; 32], CheckpointCounters::default(), limits())
+                .unwrap_err(),
+            TrainingError::RunLockContended
+        );
+        drop(live);
         fs::remove_dir_all(root).unwrap();
     }
 }

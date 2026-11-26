@@ -8,6 +8,7 @@ use xynoos_data::{Dataset, Split};
 use xynoos_tokenizer::{Tokenizer, TokenizerArtifact, TokenizerLimits};
 use xynoos_transformer::Config;
 
+use crate::provenance::{SOURCE_REPOSITORY_ID, SourceIdentity};
 use crate::{LinearWarmupDecay, Result, TrainingError, TrainingMemoryPlan};
 
 pub const MODEL_ID: &str = "xynoos-cyber-0.1";
@@ -124,6 +125,7 @@ impl RunLimits {
 /// Immutable data, source, and tokenizer identities associated with one run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunIdentity {
+    source_repository_id: String,
     source_revision: String,
     source_clean: bool,
     dataset_id: String,
@@ -141,8 +143,42 @@ pub struct RunIdentity {
 }
 
 impl RunIdentity {
+    /// Bind an official run identity to a validated manifest-backed dataset,
+    /// tokenizer artifact, and the exact deterministic train/validation
+    /// stream orders admitted by the native runtime.
+    pub fn from_standard_dataset(
+        source_identity: SourceIdentity,
+        dataset: &Dataset,
+        tokenizer: &Tokenizer,
+        data_order_identity: [u8; 32],
+        validation_order_identity: [u8; 32],
+    ) -> Result<Self> {
+        let artifact = TokenizerArtifact::serialize(tokenizer, TokenizerLimits::MAX)
+            .map_err(|_| TrainingError::InvalidIdentity)?;
+        let mut identity = Self::new(
+            source_identity.revision().to_owned(),
+            true,
+            dataset.manifest().dataset_id.clone(),
+            dataset.manifest_sha256(),
+            split_identity(dataset, Split::Train),
+            split_identity(dataset, Split::Validation),
+            split_identity(dataset, Split::Test),
+            provenance_identity(dataset),
+            tokenizer.algorithm().to_owned(),
+            Sha256::digest(artifact).into(),
+            u32::try_from(tokenizer.vocabulary_size())
+                .map_err(|_| TrainingError::InvalidIdentity)?,
+            data_order_identity,
+            validation_order_identity,
+        );
+        identity.source_repository_id = source_identity.repository_id().to_owned();
+        identity.validate(tokenizer)?;
+        identity.validate_dataset(dataset)?;
+        Ok(identity)
+    }
+
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         source_revision: String,
         source_clean: bool,
         dataset_id: String,
@@ -158,6 +194,7 @@ impl RunIdentity {
         validation_order_identity: [u8; 32],
     ) -> Self {
         Self {
+            source_repository_id: SOURCE_REPOSITORY_ID.to_owned(),
             source_revision,
             source_clean,
             dataset_id,
@@ -193,7 +230,8 @@ impl RunIdentity {
 
     pub(crate) fn validate_static(&self) -> Result<()> {
         let expected_special_registry: [u8; 32] = Sha256::digest(SPECIAL_REGISTRY).into();
-        if !self.source_clean
+        if self.source_repository_id != SOURCE_REPOSITORY_ID
+            || !self.source_clean
             || self.source_revision.len() != 40
             || !self
                 .source_revision
@@ -228,6 +266,9 @@ impl RunIdentity {
 
     pub fn source_revision(&self) -> &str {
         &self.source_revision
+    }
+    pub fn source_repository_id(&self) -> &str {
+        &self.source_repository_id
     }
     pub fn source_clean(&self) -> bool {
         self.source_clean
@@ -402,6 +443,8 @@ impl TrainingConfig {
     pub fn digest(self, identity: &RunIdentity) -> [u8; 32] {
         let mut bytes = Vec::with_capacity(256);
         bytes.extend_from_slice(MODEL_ID.as_bytes());
+        bytes.extend_from_slice(&(identity.source_repository_id.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(identity.source_repository_id.as_bytes());
         bytes.extend_from_slice(identity.source_revision.as_bytes());
         bytes.push(u8::from(identity.source_clean));
         bytes.extend_from_slice(&(identity.dataset_id.len() as u64).to_le_bytes());

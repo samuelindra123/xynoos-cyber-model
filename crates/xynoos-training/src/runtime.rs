@@ -89,6 +89,7 @@ impl Default for StopToken {
 pub struct RunLogWriter<W: Write> {
     writer: W,
     experiment_id: String,
+    source_repository_id: String,
     source_revision: String,
     config_digest: [u8; 32],
     dataset_id: String,
@@ -102,6 +103,7 @@ impl<W: Write> RunLogWriter<W> {
         Self {
             writer,
             experiment_id: experiment_id(identity, config),
+            source_repository_id: identity.source_repository_id().to_owned(),
             source_revision: identity.source_revision().to_owned(),
             config_digest: config.digest(identity),
             dataset_id: identity.dataset_id().to_owned(),
@@ -119,6 +121,7 @@ impl<W: Write> RunLogWriter<W> {
         record.insert("schema_version".into(), json!(1));
         record.insert("type".into(), json!(kind));
         record.insert("experiment_id".into(), json!(self.experiment_id));
+        record.insert("repository_id".into(), json!(self.source_repository_id));
         record.insert("source_sha".into(), json!(self.source_revision));
         record.insert("config_sha256".into(), json!(hex(&self.config_digest)));
         record.insert("model_id".into(), json!(crate::MODEL_ID));
@@ -150,6 +153,7 @@ impl<W: Write> RunLogWriter<W> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunHandoff {
     pub experiment_id: String,
+    pub repository_id: String,
     pub source_sha: String,
     pub config_sha256: String,
     pub dataset_sha256: String,
@@ -177,6 +181,7 @@ impl RunHandoff {
         let digest = config.digest(identity);
         Self {
             experiment_id: experiment_id(identity, config),
+            repository_id: identity.source_repository_id().to_owned(),
             source_sha: identity.source_revision().to_owned(),
             config_sha256: hex(&digest),
             dataset_sha256: hex(&identity.dataset_manifest_sha256()),
@@ -198,6 +203,7 @@ impl RunHandoff {
         json!({
             "schema_version": 1,
             "experiment_id": self.experiment_id,
+            "repository_id": self.repository_id,
             "source_sha": self.source_sha,
             "config_sha256": self.config_sha256,
             "dataset_sha256": self.dataset_sha256,

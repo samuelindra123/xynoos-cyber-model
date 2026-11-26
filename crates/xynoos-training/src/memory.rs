@@ -90,6 +90,9 @@ impl TrainingMemoryPlan {
     pub fn tokenizer_buffer_bytes(self) -> usize {
         self.tokenizer_buffers
     }
+    pub fn runtime_metadata_bytes(self) -> usize {
+        self.runtime_metadata
+    }
     pub fn persistent_bytes(self) -> usize {
         PARAMETERS + MOMENTS + ACCUMULATOR + self.data_allowance + self.runtime_metadata
     }

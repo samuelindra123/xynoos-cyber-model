@@ -23,6 +23,10 @@ use crate::{
     runtime::{RunLogWriter, hex, validate_root},
 };
 
+// Cumulative-work accounting uses one work unit per maximum checkpoint byte.
+// This is a conservative, deterministic I/O allowance under the 16 MiB codec cap.
+const CHECKPOINT_IO_WORK: u64 = (16 * 1024 * 1024) as u64;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
     Requested,
@@ -172,10 +176,11 @@ pub struct TrainingReport {
 }
 
 impl TrainingReport {
-    fn json(&self, source_sha: &str, config_digest: [u8; 32]) -> Value {
+    fn json(&self, repository_id: &str, source_sha: &str, config_digest: [u8; 32]) -> Value {
         json!({
             "schema_version": 1,
             "experiment_id": self.experiment_id,
+            "repository_id": repository_id,
             "source_sha": source_sha,
             "config_sha256": hex(&config_digest),
             "model_id": crate::MODEL_ID,
@@ -219,7 +224,7 @@ pub struct Trainer<S: BatchSource> {
     run_budget: TrainingRunBudget,
     ledger_persistent_baseline: usize,
     stop: StopToken,
-    log: RunLogWriter<BufWriter<File>>,
+    log: RunLogWriter<Box<dyn Write>>,
     timings: Timings,
     pending_consumed: u64,
     pending_supervised: u64,
@@ -292,8 +297,11 @@ impl<S: BatchSource> Trainer<S> {
         }
 
         let digest = config.digest(&identity);
-        let mut journal =
-            RunJournal::open(root, digest, CheckpointCounters::default(), config.limits())?;
+        let mut journal = if resume.is_some() {
+            RunJournal::open_existing(root, digest, CheckpointCounters::default(), config.limits())?
+        } else {
+            RunJournal::open(root, digest, CheckpointCounters::default(), config.limits())?
+        };
         cleanup_temporary_artifacts(root)?;
         if resume.is_none() {
             let progress = journal.progress();
@@ -314,6 +322,20 @@ impl<S: BatchSource> Trainer<S> {
         let mut timings = Timings::default();
         let (model, optimizer, counters, checkpoint_load_time) = if let Some(()) = resume {
             let _reservation = run_budget.reserve_phase(MemoryPhase::Resume)?;
+            let checkpoint_metadata = fs::symlink_metadata(&checkpoint_path)?;
+            if !checkpoint_metadata.is_file()
+                || checkpoint_metadata.file_type().is_symlink()
+                || checkpoint_metadata.len() == 0
+                || checkpoint_metadata.len() > CHECKPOINT_IO_WORK
+            {
+                return Err(TrainingError::Checkpoint("invalid_file_size_or_type"));
+            }
+            journal.precharge_auxiliary_work(
+                checkpoint_metadata
+                    .len()
+                    .checked_mul(2)
+                    .ok_or(TrainingError::ArithmeticOverflow)?,
+            )?;
             let load_start = Instant::now();
             let checkpoint = CheckpointCodec::load(root, &identity, config, tokenizer)?;
             if source.order_identity() != checkpoint.identity.data_order_identity()
@@ -408,7 +430,8 @@ impl<S: BatchSource> Trainer<S> {
         }
         let metrics_path = root.join("metrics.jsonl");
         let metrics_file = open_append_file(&metrics_path)?;
-        let mut log = RunLogWriter::new(BufWriter::new(metrics_file), &identity, config);
+        let writer: Box<dyn Write> = Box::new(BufWriter::new(metrics_file));
+        let mut log = RunLogWriter::new(writer, &identity, config);
         let experiment_id = crate::config::experiment_id(&identity, config);
         RunHandoff::for_run(
             &identity,
@@ -426,7 +449,8 @@ impl<S: BatchSource> Trainer<S> {
                 "cumulative_work": counters.cumulative_work,
                 "owned_memory_cap_bytes": config.limits().owned_memory_bytes(),
             }),
-        )?;
+        )
+        .map_err(|_| TrainingError::Logging("start_or_resume"))?;
         Ok(Self {
             root: root.to_path_buf(),
             identity,
@@ -472,17 +496,28 @@ impl<S: BatchSource> Trainer<S> {
             return Err(TrainingError::InvalidConfiguration);
         }
         let mut primary_error = None;
-        let reason = match self.run_updates(validation) {
-            Ok(reason) => reason,
+        let final_checkpoint_reserved = match self.charge_auxiliary_work(CHECKPOINT_IO_WORK) {
+            Ok(()) => true,
             Err(error) => {
-                let failed_reason = if is_numerical_failure(&error) {
-                    StopReason::NumericalFailure
-                } else {
-                    StopReason::Failure
-                };
                 primary_error = Some(error);
-                failed_reason
+                false
             }
+        };
+        let reason = if final_checkpoint_reserved {
+            match self.run_updates(validation) {
+                Ok(reason) => reason,
+                Err(error) => {
+                    let failed_reason = if is_numerical_failure(&error) {
+                        StopReason::NumericalFailure
+                    } else {
+                        StopReason::Failure
+                    };
+                    primary_error = Some(error);
+                    failed_reason
+                }
+            }
+        } else {
+            StopReason::Failure
         };
 
         if self.pending_consumed != 0
@@ -492,7 +527,7 @@ impl<S: BatchSource> Trainer<S> {
         }
         let _ = self.source.seek_to(self.counters.committed_cursor);
         if self.attempt_started.is_some() {
-            if let Err(error) = self.write_checkpoint() {
+            if let Err(error) = self.write_checkpoint(final_checkpoint_reserved) {
                 primary_error.get_or_insert(error);
             }
             match self.journal.finish_attempt() {
@@ -511,17 +546,19 @@ impl<S: BatchSource> Trainer<S> {
         self.counters.cumulative_work = self.journal.progress().cumulative_work;
         self.counters.attempted_updates = self.journal.progress().attempted_updates;
         self.counters.checkpoint_sequence = self.journal.progress().checkpoint_sequence;
-        if let Some(error) = &primary_error {
-            let _ = self.log.write_event(
+        if let Some(error) = primary_error.as_ref().map(|error| format!("{error:?}"))
+            && let Err(logging_error) = self.log.write_event(
                 "failure",
                 json!({
-                    "error": format!("{error:?}"),
-                    "numerical_failure": is_numerical_failure(error),
+                    "error": error,
+                    "numerical_failure": primary_error.as_ref().is_some_and(is_numerical_failure),
                     "completed_updates": self.counters.completed_updates,
                 }),
-            );
+            )
+        {
+            primary_error.get_or_insert(logging_error);
         }
-        let _ = self.log.write_event(
+        if let Err(error) = self.log.write_event(
             "stop",
             json!({
                 "reason": reason.as_str(),
@@ -529,11 +566,16 @@ impl<S: BatchSource> Trainer<S> {
                 "attempted_consumed_tokens": self.counters.attempted_consumed_tokens,
                 "committed_consumed_tokens": self.counters.committed_consumed_tokens,
             }),
-        );
+        ) {
+            primary_error.get_or_insert(error);
+        }
         let report_path = self.root.join("final-report.json");
-        let _ = self.log.flush();
+        if self.log.flush().is_err() {
+            primary_error.get_or_insert(TrainingError::Logging("final_flush"));
+        }
         let first_report = self.build_report(reason);
         let mut report_json = first_report.json(
+            self.identity.source_repository_id(),
             self.identity.source_revision(),
             self.config.digest(&self.identity),
         );
@@ -541,20 +583,21 @@ impl<S: BatchSource> Trainer<S> {
             report_json["error"] = json!(format!("{error:?}"));
         }
         let shutdown_start = Instant::now();
-        if let Err(error) = write_json_atomic(&self.root, &report_path, &report_json) {
-            primary_error.get_or_insert(error);
+        if let Err(_error) = write_json_atomic(&self.root, &report_path, &report_json) {
+            primary_error.get_or_insert(TrainingError::RuntimeArtifact("final-report"));
         }
         self.timings.shutdown.push(shutdown_start.elapsed());
         let report = self.build_report(reason);
         let mut final_json = report.json(
+            self.identity.source_repository_id(),
             self.identity.source_revision(),
             self.config.digest(&self.identity),
         );
         if let Some(error) = &primary_error {
             final_json["error"] = json!(format!("{error:?}"));
         }
-        if let Err(error) = write_json_atomic(&self.root, &report_path, &final_json) {
-            primary_error.get_or_insert(error);
+        if let Err(_error) = write_json_atomic(&self.root, &report_path, &final_json) {
+            primary_error.get_or_insert(TrainingError::RuntimeArtifact("final-report"));
         }
         if let Err(error) = cleanup_temporary_artifacts(&self.root) {
             primary_error.get_or_insert(error);
@@ -702,7 +745,7 @@ impl<S: BatchSource> Trainer<S> {
                             .loss_supervised
                             .checked_add(supervised_tokens)
                             .ok_or(TrainingError::ArithmeticOverflow)?;
-                        let _ = self.log.write_event(
+                        self.log.write_event(
                             "microbatch",
                             json!({
                                 "loss": loss,
@@ -714,7 +757,7 @@ impl<S: BatchSource> Trainer<S> {
                                 "backward_work": tape_metrics.backward_work,
                                 "gradient_transfer_work": tape_metrics.gradient_transfer_work,
                             }),
-                        );
+                        ).map_err(|_| TrainingError::Logging("microbatch"))?;
                     }
                 }
                 drop(_backward_reservation);
@@ -735,13 +778,15 @@ impl<S: BatchSource> Trainer<S> {
                 if self.model.parameters().accounted_bytes() != self.ledger_persistent_baseline {
                     return Err(TrainingError::InvalidConfiguration);
                 }
-                self.log.write_event(
-                    "empty_window",
-                    json!({
-                        "consumed_tokens": self.pending_consumed,
-                        "committed_cursor": self.counters.committed_cursor,
-                    }),
-                )?;
+                self.log
+                    .write_event(
+                        "empty_window",
+                        json!({
+                            "consumed_tokens": self.pending_consumed,
+                            "committed_cursor": self.counters.committed_cursor,
+                        }),
+                    )
+                    .map_err(|_| TrainingError::Logging("empty_window"))?;
                 continue;
             }
 
@@ -858,14 +903,19 @@ impl<S: BatchSource> Trainer<S> {
                     "parameter_update_norm": update_metrics.parameter_update_norm,
                     "window_microbatches": window.microbatches,
                 }),
-            )?;
+            )
+            .map_err(|_| TrainingError::Logging("optimizer_update"))?;
 
             if self
                 .counters
                 .completed_updates
                 .is_multiple_of(self.config.limits().checkpoint_every_updates())
+                && let Err(error) = self.write_checkpoint(false)
             {
-                self.write_checkpoint()?;
+                if let Some(reason) = budget_stop_reason(&error) {
+                    return Ok(reason);
+                }
+                return Err(error);
             }
             if let Some(source) = validation.as_deref_mut()
                 && self
@@ -954,15 +1004,17 @@ impl<S: BatchSource> Trainer<S> {
             .validation_supervised_tokens
             .checked_add(supervised)
             .ok_or(TrainingError::ArithmeticOverflow)?;
-        self.log.write_event(
-            "validation",
-            json!({
-                "loss": loss,
-                "supervised_tokens": supervised,
-                "validation_supervised_tokens": self.counters.validation_supervised_tokens,
-                "work_reserved": work,
-            }),
-        )?;
+        self.log
+            .write_event(
+                "validation",
+                json!({
+                    "loss": loss,
+                    "supervised_tokens": supervised,
+                    "validation_supervised_tokens": self.counters.validation_supervised_tokens,
+                    "work_reserved": work,
+                }),
+            )
+            .map_err(|_| TrainingError::Logging("validation"))?;
         Ok(())
     }
 
@@ -985,7 +1037,14 @@ impl<S: BatchSource> Trainer<S> {
         Ok(())
     }
 
-    fn write_checkpoint(&mut self) -> Result<()> {
+    fn write_checkpoint(&mut self, final_checkpoint_reserved: bool) -> Result<()> {
+        if !final_checkpoint_reserved {
+            self.charge_auxiliary_work(CHECKPOINT_IO_WORK)?;
+        }
+        self.write_checkpoint_inner()
+    }
+
+    fn write_checkpoint_inner(&mut self) -> Result<()> {
         let active = self.journal.sync_runtime()?;
         let progress = self.journal.progress();
         self.counters.attempted_consumed_tokens = progress.attempted_consumed_tokens;
@@ -1007,16 +1066,25 @@ impl<S: BatchSource> Trainer<S> {
         let start = Instant::now();
         let publication = CheckpointCodec::write_atomic(&self.root, &snapshot)?;
         self.timings.checkpoint_write.push(start.elapsed());
-        self.log.write_event(
-            "checkpoint",
-            json!({
-                "path": publication.path,
-                "bytes": publication.bytes,
-                "sha256": hex(&publication.sha256),
-                "durable": publication.durable,
-                "sequence": self.counters.checkpoint_sequence,
-            }),
-        )?;
+        self.log
+            .write_event(
+                "checkpoint",
+                json!({
+                    "path": publication.path,
+                    "bytes": publication.bytes,
+                    "sha256": hex(&publication.sha256),
+                    "durable": publication.durable,
+                    "sequence": self.counters.checkpoint_sequence,
+                }),
+            )
+            .map_err(|_| TrainingError::Logging("checkpoint"))?;
+        Ok(())
+    }
+
+    fn charge_auxiliary_work(&mut self, work: u64) -> Result<()> {
+        self.journal.precharge_auxiliary_work(work)?;
+        self.policy
+            .charge_auxiliary_work(self.model.parameters(), work)?;
         Ok(())
     }
 
@@ -1246,6 +1314,7 @@ mod tests {
     use super::*;
     use crate::{LinearWarmupDecay, RunLimits, TrainingMemoryPlan, VecBatchSource};
     use sha2::{Digest, Sha256};
+    use std::io;
     use xynoos_autograd::{AdamWConfig, ResourceLimits};
     use xynoos_data::Batch;
     use xynoos_tokenizer::{TokenizerArtifact, TokenizerLimits};
@@ -1424,6 +1493,75 @@ mod tests {
             .collect()
     }
 
+    struct FailWriter {
+        marker: &'static [u8],
+        fail_write: bool,
+        failed: bool,
+        pending: Vec<u8>,
+    }
+
+    impl Write for FailWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.extend_from_slice(bytes);
+            if self.fail_write
+                && !self.failed
+                && self
+                    .pending
+                    .windows(self.marker.len())
+                    .any(|part| part == self.marker)
+            {
+                self.failed = true;
+                return Err(io::Error::other("injected event write failure"));
+            }
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if !self.fail_write
+                && !self.failed
+                && self
+                    .pending
+                    .windows(self.marker.len())
+                    .any(|part| part == self.marker)
+            {
+                self.failed = true;
+                return Err(io::Error::other("injected event flush failure"));
+            }
+            self.pending.clear();
+            Ok(())
+        }
+    }
+
+    fn with_failure_writer(
+        label: &str,
+        marker: &'static [u8],
+        fail_write: bool,
+        stop: StopToken,
+    ) -> (Trainer<VecBatchSource>, PathBuf) {
+        let fixture = fixture();
+        let tokenizer = tokenizer();
+        let identity = identity(&tokenizer, &fixture);
+        let config = config(&fixture, 1, 2);
+        let source = VecBatchSource::new(
+            batches(&fixture, "train", &tokenizer),
+            identity.data_order_identity(),
+        );
+        let root = root(label);
+        let mut trainer =
+            Trainer::new(&root, identity.clone(), config, &tokenizer, source, stop).unwrap();
+        trainer.log = RunLogWriter::new(
+            Box::new(FailWriter {
+                marker,
+                fail_write,
+                failed: false,
+                pending: Vec::new(),
+            }),
+            &identity,
+            config,
+        );
+        (trainer, root)
+    }
+
     fn state_bits(
         trainer: &Trainer<VecBatchSource>,
     ) -> (Vec<Vec<u32>>, Vec<Vec<u32>>, u64, u64, u64) {
@@ -1565,6 +1703,87 @@ mod tests {
                 .unwrap()
                 .is_none())
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn microbatch_log_write_failure_discards_partial_window_and_preserves_precharge() {
+        let (mut trainer, root) = with_failure_writer(
+            "micro-log-write",
+            b"\"type\":\"microbatch\"",
+            true,
+            StopToken::new(),
+        );
+        assert_eq!(
+            trainer.run(None).unwrap_err(),
+            TrainingError::Logging("microbatch")
+        );
+        assert_eq!(trainer.counters().completed_updates, 0);
+        assert_eq!(trainer.counters().committed_consumed_tokens, 0);
+        assert_eq!(trainer.counters().committed_cursor, 0);
+        assert_eq!(trainer.counters().attempted_consumed_tokens, 32);
+        assert!(root.join("checkpoint.xyckpt").is_file());
+        let report: Value =
+            serde_json::from_slice(&fs::read(root.join("final-report.json")).unwrap()).unwrap();
+        assert_eq!(report["error"], "Logging(\"microbatch\")");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn microbatch_log_flush_failure_stops_before_optimizer_commit() {
+        let (mut trainer, root) = with_failure_writer(
+            "micro-log-flush",
+            b"\"type\":\"microbatch\"",
+            false,
+            StopToken::new(),
+        );
+        assert_eq!(
+            trainer.run(None).unwrap_err(),
+            TrainingError::Logging("microbatch")
+        );
+        assert_eq!(trainer.optimizer().step_count(), 0);
+        assert_eq!(trainer.counters().attempted_consumed_tokens, 32);
+        assert_eq!(trainer.counters().committed_consumed_tokens, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn postcommit_metric_log_failure_keeps_committed_update_and_checkpoint() {
+        let (mut trainer, root) = with_failure_writer(
+            "postcommit-log",
+            b"\"type\":\"optimizer_update\"",
+            false,
+            StopToken::new(),
+        );
+        assert_eq!(
+            trainer.run(None).unwrap_err(),
+            TrainingError::Logging("optimizer_update")
+        );
+        assert_eq!(trainer.optimizer().step_count(), 1);
+        assert_eq!(trainer.counters().completed_updates, 1);
+        assert_eq!(trainer.counters().committed_consumed_tokens, 32);
+        assert_eq!(trainer.counters().committed_cursor, 1);
+        assert!(root.join("checkpoint.xyckpt").is_file());
+        let report: Value =
+            serde_json::from_slice(&fs::read(root.join("final-report.json")).unwrap()).unwrap();
+        assert_eq!(report["counters"]["completed_updates"], 1);
+        assert_eq!(report["error"], "Logging(\"optimizer_update\")");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn final_report_publication_failure_returns_nonzero_runtime_error() {
+        let stop = StopToken::new();
+        stop.request();
+        let (mut trainer, root) =
+            with_failure_writer("final-report-fail", b"no match", false, stop);
+        fs::create_dir(root.join("final-report.json")).unwrap();
+        assert_eq!(
+            trainer.run(None).unwrap_err(),
+            TrainingError::RuntimeArtifact("final-report")
+        );
+        assert!(root.join("checkpoint.xyckpt").is_file());
+        assert!(root.join("final-report.json").is_dir());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1835,9 +2054,9 @@ mod tests {
             resumed_report.last_update_norm.unwrap().to_bits(),
             full_report.last_update_norm.unwrap().to_bits()
         );
-        assert_eq!(
-            resumed_report.counters.cumulative_work,
-            full_report.counters.cumulative_work + 32
+        assert!(
+            resumed_report.counters.cumulative_work > full_report.counters.cumulative_work + 32,
+            "resume read and checkpoint I/O are conservatively charged in addition to replay work"
         );
         fs::remove_dir_all(full_root).unwrap();
         fs::remove_dir_all(resumed_root).unwrap();
@@ -1918,5 +2137,49 @@ mod tests {
         assert!(resumed_report.counters.cumulative_work > full_report.counters.cumulative_work);
         fs::remove_dir_all(full_root).unwrap();
         fs::remove_dir_all(resumed_root).unwrap();
+    }
+
+    #[test]
+    fn resume_with_missing_journal_preserves_checkpoint_and_does_not_recreate_lineage() {
+        let fixture = fixture();
+        let tokenizer = tokenizer();
+        let identity = identity(&tokenizer, &fixture);
+        let config = config(&fixture, 1, 2);
+        let order = identity.data_order_identity();
+        let root = root("missing-journal-resume");
+        let source = VecBatchSource::new(batches(&fixture, "train", &tokenizer), order);
+        let mut trainer = Trainer::new(
+            &root,
+            identity.clone(),
+            config,
+            &tokenizer,
+            source,
+            StopToken::new(),
+        )
+        .unwrap();
+        trainer.run(None).unwrap();
+        drop(trainer);
+        let checkpoint_before = fs::read(root.join("checkpoint.xyckpt")).unwrap();
+        fs::remove_file(root.join("run.journal")).unwrap();
+
+        assert!(matches!(
+            Trainer::resume(
+                &root,
+                identity,
+                config,
+                &tokenizer,
+                VecBatchSource::new(batches(&fixture, "train", &tokenizer), order),
+                StopToken::new(),
+            ),
+            Err(TrainingError::Checkpoint("run_journal_missing_for_resume"))
+        ));
+        assert_eq!(
+            fs::read(root.join("checkpoint.xyckpt")).unwrap(),
+            checkpoint_before
+        );
+        assert!(!root.join("run.journal").exists());
+        assert!(root.join(".run.lock").is_file());
+        assert!(!crate::AdvisoryLock::is_held(&root.join(".run.lock")).unwrap());
+        fs::remove_dir_all(root).unwrap();
     }
 }
