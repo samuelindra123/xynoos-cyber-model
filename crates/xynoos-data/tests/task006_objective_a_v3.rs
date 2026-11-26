@@ -34,6 +34,23 @@ fn stream_config() -> StreamConfig {
     }
 }
 
+fn trainer_stream_config() -> StreamConfig {
+    StreamConfig {
+        batch: BatchConfig {
+            sequence_length: 32,
+            stride: 32,
+            batch_size: 1,
+            tail: Tail::Pad,
+            pad_final_batch: false,
+        },
+        boundaries: Boundaries {
+            bos: true,
+            eos: true,
+        },
+        tokenizer_limits: TokenizerLimits::MAX,
+    }
+}
+
 #[test]
 fn manifest_train_only_fit_and_padded_split_streams_are_deterministic() {
     let root = dataset_root();
@@ -95,4 +112,46 @@ fn manifest_train_only_fit_and_padded_split_streams_are_deterministic() {
             .unwrap();
         assert_eq!(repeated.order_identity(), order_identity);
     }
+}
+
+#[test]
+fn manifest_train_documents_fit_native_trainer_shape_without_cross_document_packing() {
+    let dataset = ManifestValidator::open(&dataset_root(), DatasetLimits::MAX).unwrap();
+    let fitted = dataset
+        .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+        .unwrap();
+    let mut stream = dataset
+        .fitted_batches(Split::Train, &fitted, trainer_stream_config())
+        .unwrap();
+    let order_identity = stream.order_identity();
+    let mut documents = 0;
+    let mut supervised_targets = 0;
+    while let Some(batch) = stream.next_batch().unwrap() {
+        assert_eq!(batch.shape(), [1, 32]);
+        assert_eq!(batch.input().len(), 32);
+        assert_eq!(batch.target().len(), 32);
+        assert_eq!(batch.input()[0], SpecialToken::Bos.id());
+        let valid = batch.valid_mask().unwrap();
+        let loss = batch.loss_mask().unwrap();
+        assert_eq!(valid.len(), 32);
+        assert_eq!(loss.len(), 32);
+        assert_eq!(valid[0], 1);
+        assert!(valid.contains(&0));
+        assert!(loss.iter().zip(valid).all(|(&loss, &valid)| loss <= valid));
+        supervised_targets += loss.iter().map(|&value| usize::from(value)).sum::<usize>();
+        documents += 1;
+    }
+    let stats = stream.stats();
+    assert_eq!(documents, 24);
+    assert_eq!(stats.documents, 24);
+    assert_eq!(stats.samples, 24);
+    assert_eq!(stats.batches, 24);
+    assert_eq!(stats.dropped_tails, 0);
+    assert_eq!(stats.padded_tails, 24);
+    assert_eq!(supervised_targets, 197);
+
+    let repeated = dataset
+        .fitted_batches(Split::Train, &fitted, trainer_stream_config())
+        .unwrap();
+    assert_eq!(repeated.order_identity(), order_identity);
 }
