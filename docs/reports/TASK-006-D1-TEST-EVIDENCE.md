@@ -4,6 +4,7 @@
 |---|---|
 | Historical D1 implementation revision | `da99cba3016b7fe564c42e65d8d2babe44b3b98f` |
 | Previous full Objective A v2 baseline source | `4a83c68a199d8844e2d01038bd5d94d8dc377959` |
+| Latest Objective A v2 candidate head | `8d70584fda7d269762d70681d308936b045887bf` |
 | Answer-bearing baseline test source | `d8e4d7df6d5a919acf2002783ed59af39e86d67f` |
 | Working tree | Clean for the answer-bearing debug and release tests at the source revision above. |
 
@@ -26,11 +27,14 @@
 The historical full-workspace local runs above covered 178 tests/doctests at
 `da99cba`. The previous v2 candidate's exact-hosted Foundation CI run
 `45823059589` checked out `4a83c68a199d8844e2d01038bd5d94d8dc377959` and
-passed all 33 steps, including formatting, Clippy, all independent oracles,
-debug and release suites at 181 counted checks each, resource checks, and Rust
-documentation. The five C3 auditor-authored tests also passed locally in both
-profiles on that clean candidate revision. A local rerun of
-`python3 tools/check_repository.py` on `4a83c68` checked 255 tracked files.
+passed all 33 steps with 181 debug and release checks. The latest candidate's
+exact-head Foundation CI run `45831165420` checked out
+`8d70584fda7d269762d70681d308936b045887bf` and passed all 33 steps, including
+the updated 182-check debug/release totals, formatting, Clippy, independent
+oracles, resource checks, and Rust documentation. The five C3 auditor-authored
+tests also passed locally in both profiles on the previous clean candidate.
+`python3 tools/check_repository.py` checked 255 tracked files on the latest
+candidate.
 
 The answer-bearing follow-up is an additional unchanged-weight baseline on the
 same manifest-backed corpus, not a training experiment. Its masks were
@@ -46,9 +50,9 @@ baseline test, and the training test-split rejection. The initial full debug
 run before the coverage fix failed the detached lifecycle stop assertion; it
 exposed the evaluator's hard error at the batch cap. The final historical
 debug and release runs were executed after the fix and both passed. The latest
-candidate's 181-check hosted runs include its additional v2 dataset and native
-trainer plumbing controls. The answer-bearing test adds one expected workspace
-check; the next exact-head hosted full suite must confirm 182.
+The previous candidate's 181-check hosted run included the additional v2
+dataset and native trainer plumbing controls. Exact-head run `45831165420`
+confirmed the answer-bearing test and full 182-check workspace suites.
 
 ## Independent fixtures and controls
 
