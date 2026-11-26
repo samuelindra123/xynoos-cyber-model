@@ -67,20 +67,35 @@ durable checkpoints, or cleanup.
 
 ## Measured software workload and limits
 
-The D1/D2 software tests measured one small synthetic Objective A trajectory
-on the available CPU environment. At clean revision
-`0b798e91b550f30d37683eab2c6bf66382a88c28`, the test processed 64 supervised
-targets over 2 updates at 2.048 targets/second. It reported a 0.140678167
-validation-loss reduction on a two-row training fixture and two-row
-validation fixture. The test's owned-memory peak was 42,439,416 bytes, its
-autograd-ledger peak was 30,682,296 bytes, and its process high-water mark was
-133,312,512 bytes. This is a single software-test observation, not a benchmark
-of a larger dataset or an Actions/Colab provider guarantee.
+The only repeated-training measurement uses the two-row Objective A software
+fixture (two training rows, two validation rows, 64 supervised targets and
+two optimizer updates). At clean revision
+`0b798e91b550f30d37683eab2c6bf66382a88c28`, the same test code reported
+2.048 targets/second in the debug profile and 18.913 targets/second in the
+release profile. Both runs reported the same 0.140678167 validation-loss
+reduction, 42,439,416-byte owned-memory peak, and 30,682,296-byte autograd
+ledger peak. The debug test process high-water was 133,312,512 bytes; the
+release test process high-water was 130,641,920 bytes. These are local
+software-test observations, not a larger-dataset benchmark or an
+Actions/Colab provider guarantee.
 
-At that observed rate, a linear 768-target projection is about 375 seconds,
-before allowance for differences in batch mix and provider. It exceeds the
-current workflow's 120-second active-runtime ceiling. A 24-update proposal
-also consumes 7,782,315,616 of the 8,000,000,000 cumulative-work ceiling:
+The profile difference is material. A linear 768-target projection is about
+375 seconds using the debug rate and 40.6 seconds using the release rate.
+Only the release profile corresponds to the training workflow's build mode,
+but this projection omits the exact 24-update cadence, eight validation
+passes, five checkpoints, initialization, and runner variability. The full
+candidate configuration has not been timed three times on the hosted runner,
+so the current 120-second runtime cap is not yet shown to fit or fail.
+
+The earlier TASK 006-R optimized measurement of about 40 targets/second came
+from a different source revision and evaluation setup. It is retained as
+historical evidence, not combined with the post-D1 measurements. The R2/C3
+reports also distinguish process high-water from application memory ledgers;
+the larger local test-process high-water values above are not hardware
+specifications or hard RSS enforcement.
+
+A separate work-budget calculation shows that a 24-update proposal consumes
+7,782,315,616 of the 8,000,000,000 cumulative-work ceiling:
 
 | Component | Estimated work |
 |---|---:|
@@ -93,9 +108,10 @@ also consumes 7,782,315,616 of the 8,000,000,000 cumulative-work ceiling:
 One additional validation batch at each validation point adds 400,000,128
 work and exceeds the cap. The proposed 24 updates/768 targets are therefore a
 ceiling calculation only. They are not a selected experiment, a claim of
-scientific sufficiency, or evidence of cybersecurity learning. The measured
-rate is one local test result, not a repeatable provider benchmark; it does
-not justify increasing the runtime cap or switching to a GPU.
+scientific sufficiency, or evidence of cybersecurity learning. Current
+throughput has not been measured repeatedly on the candidate provider with
+the proposed full workload. It does not justify increasing the runtime cap
+or switching to a GPU.
 
 ## Deterministic workload-admission policy
 
@@ -139,10 +155,11 @@ Before a future run can be admitted, all of these gates must pass:
    authorization for the exact immutable configuration and provider remains
    a separate requirement.
 
-Current D1 data fails the scientific-input gate. The single throughput sample
-fails the repeat-measurement gate, and private off-host persistence and remote
-detached lifecycle fail the persistence/provider gates. Consequently no
-first-training provider is selected yet. Actions remains the default for
+Current D1 data fails the scientific-input gate. The available throughput
+measurements are tiny fixture tests from different profiles/revisions, not
+three repetitions of the candidate workload on the provider. Private off-host
+persistence and remote detached lifecycle also fail their gates. Consequently
+no first-training provider is selected yet. Actions remains the default for
 bounded software verification; Colab is only a future candidate after those
 blockers and the required owner authorization.
 
