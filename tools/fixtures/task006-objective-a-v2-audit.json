@@ -20,168 +20,288 @@
   "assessment": "authored-synthetic-compositional-control-only",
   "bpe_payload_token_count_max": 49,
   "bpe_payload_token_count_min": 34,
+  "cross_split_near_duplicate_pair_classes": {
+    "cross_family": 0,
+    "same_family_different_template": 0,
+    "same_family_same_template": 23
+  },
   "cross_split_near_duplicate_pair_count": 23,
   "cross_split_near_duplicate_pairs": [
     {
       "character_trigram_jaccard": 0.848101,
       "left_document_id": "oa2-006",
+      "left_family": "comparison",
       "left_split": "train",
+      "left_template_index": 2,
       "right_document_id": "oa2-025",
-      "right_split": "validation"
+      "right_family": "comparison",
+      "right_split": "validation",
+      "right_template_index": 2,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.825581,
       "left_document_id": "oa2-007",
+      "left_family": "comparison",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-027",
-      "right_split": "validation"
+      "right_family": "comparison",
+      "right_split": "validation",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.869048,
       "left_document_id": "oa2-007",
+      "left_family": "comparison",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-038",
-      "right_split": "test"
+      "right_family": "comparison",
+      "right_split": "test",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.886364,
       "left_document_id": "oa2-009",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-032",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.908046,
       "left_document_id": "oa2-009",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-044",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.930233,
       "left_document_id": "oa2-010",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-032",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.886364,
       "left_document_id": "oa2-010",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-044",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.871795,
       "left_document_id": "oa2-011",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 3,
       "right_document_id": "oa2-030",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 3,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.871795,
       "left_document_id": "oa2-011",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 3,
       "right_document_id": "oa2-042",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 3,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.878049,
       "left_document_id": "oa2-012",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 1,
       "right_document_id": "oa2-031",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.878049,
       "left_document_id": "oa2-012",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 1,
       "right_document_id": "oa2-041",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.925,
       "left_document_id": "oa2-013",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 1,
       "right_document_id": "oa2-031",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.901235,
       "left_document_id": "oa2-013",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 1,
       "right_document_id": "oa2-041",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.878049,
       "left_document_id": "oa2-014",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 1,
       "right_document_id": "oa2-031",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.878049,
       "left_document_id": "oa2-014",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 1,
       "right_document_id": "oa2-041",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.886364,
       "left_document_id": "oa2-015",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-032",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.886364,
       "left_document_id": "oa2-015",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 0,
       "right_document_id": "oa2-044",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.875,
       "left_document_id": "oa2-016",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 2,
       "right_document_id": "oa2-029",
-      "right_split": "validation"
+      "right_family": "parity",
+      "right_split": "validation",
+      "right_template_index": 2,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.923077,
       "left_document_id": "oa2-016",
+      "left_family": "parity",
       "left_split": "train",
+      "left_template_index": 2,
       "right_document_id": "oa2-043",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 2,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.875,
       "left_document_id": "oa2-029",
+      "left_family": "parity",
       "left_split": "validation",
+      "left_template_index": 2,
       "right_document_id": "oa2-043",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 2,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.871795,
       "left_document_id": "oa2-030",
+      "left_family": "parity",
       "left_split": "validation",
+      "left_template_index": 3,
       "right_document_id": "oa2-042",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 3,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.901235,
       "left_document_id": "oa2-031",
+      "left_family": "parity",
       "left_split": "validation",
+      "left_template_index": 1,
       "right_document_id": "oa2-041",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 1,
+      "template_relation": "same_family_same_template"
     },
     {
       "character_trigram_jaccard": 0.886364,
       "left_document_id": "oa2-032",
+      "left_family": "parity",
       "left_split": "validation",
+      "left_template_index": 0,
       "right_document_id": "oa2-044",
-      "right_split": "test"
+      "right_family": "parity",
+      "right_split": "test",
+      "right_template_index": 0,
+      "template_relation": "same_family_same_template"
     }
   ],
   "dataset_id": "2a5eda1b0668ee2ec9671b70b5becacc4e8479a28adec212853fd23d6d4d214c",

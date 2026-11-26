@@ -37,6 +37,24 @@ def jaccard(left, right):
     return len(a & b) / max(1, len(a | b))
 
 
+def template_relation(left, right):
+    if left["family"] != right["family"]:
+        return "cross_family"
+    if left["template_index"] != right["template_index"]:
+        return "same_family_different_template"
+    return "same_family_same_template"
+
+
+def check_template_relation_oracle():
+    base = {"family": "parity", "template_index": 0}
+    if template_relation(base, {"family": "parity", "template_index": 0}) != "same_family_same_template":
+        raise ValueError("template relation oracle failed for same-template pair")
+    if template_relation(base, {"family": "parity", "template_index": 1}) != "same_family_different_template":
+        raise ValueError("template relation oracle failed for different-template pair")
+    if template_relation(base, {"family": "comparison", "template_index": 0}) != "cross_family":
+        raise ValueError("template relation oracle failed for cross-family pair")
+
+
 def assign_split(content_sha256, seed):
     digest = hashlib.sha256(f"1\0{seed}\0{content_sha256}".encode("ascii")).digest()
     prefix = int.from_bytes(digest[:8], "big")
@@ -144,6 +162,7 @@ def check_boundary_oracle():
 
 def build():
     check_boundary_oracle()
+    check_template_relation_oracle()
     manifest_bytes = (DATASET / "manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
     source_bytes = (DATASET / "sources.jsonl").read_bytes()
@@ -182,6 +201,7 @@ def build():
     normalized_seen = {}
     exact_duplicates = []
     cross_near_duplicates = []
+    near_duplicate_classes = Counter()
     all_pairs = []
     families = {row["document_id"]: row for row in index["examples"]}
     if len(families) != len(documents) or set(families) != {
@@ -226,12 +246,21 @@ def build():
         score = jaccard(left_text, right_text)
         all_pairs.append((score, left, right))
         if score >= THRESHOLD and left["split"] != right["split"]:
+            left_task = families[left["document_id"]]
+            right_task = families[right["document_id"]]
+            pair_class = template_relation(left_task, right_task)
+            near_duplicate_classes[pair_class] += 1
             cross_near_duplicates.append(
                 {
                     "left_document_id": left["document_id"],
                     "left_split": left["split"],
+                    "left_family": left_task["family"],
+                    "left_template_index": left_task["template_index"],
                     "right_document_id": right["document_id"],
                     "right_split": right["split"],
+                    "right_family": right_task["family"],
+                    "right_template_index": right_task["template_index"],
+                    "template_relation": pair_class,
                     "character_trigram_jaccard": round(score, 6),
                 }
             )
@@ -377,6 +406,14 @@ def build():
         "near_duplicate_threshold": THRESHOLD,
         "cross_split_near_duplicate_pairs": cross_near_duplicates,
         "cross_split_near_duplicate_pair_count": len(cross_near_duplicates),
+        "cross_split_near_duplicate_pair_classes": {
+            pair_class: near_duplicate_classes[pair_class]
+            for pair_class in (
+                "same_family_same_template",
+                "same_family_different_template",
+                "cross_family",
+            )
+        },
         "max_cross_split_character_trigram_jaccard": round(max_cross, 6),
         "heldout_input_combination_overlap": combination_overlap,
         "tokenizer_fit": {
