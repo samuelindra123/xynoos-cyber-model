@@ -7,6 +7,12 @@ dispatched, no Colab runtime or accelerator was provisioned, no compute units
 were consumed, no external dataset was acquired, no model weights were
 uploaded, and no pull request was merged.
 
+**Evidence refresh:** Objective A v3 on open draft PR #28 supersedes v2 as
+the current dataset candidate. V2 numbers remain only where they explain why
+its prior workload proposal was retired. V3 improves the recorded template
+and task-input separation, but remains a public synthetic control without
+human review or a post-update learning result.
+
 This package closes the authorized engineering preparation as far as the
 present evidence allows. It is not an immutable run configuration and must
 not be used to dispatch training. The minimum first experiment remains a
@@ -20,19 +26,19 @@ out of scope pending separate provenance, licensing, and quality review.
 
 | # | Required item | Current evidence and disposition |
 |---:|---|---|
-| 1 | Accepted source SHA | **None yet.** The repository's current `main` is `32eca2b900c4f7a88294f7a24a5dfae0604ae798`. The engineering dependency PRs #20, #21, #23, #24, #25, #26, and #27, plus the sibling D1 Objective A v2 PR #28, are all open drafts and unmerged. Current candidate evidence is recorded in the milestone table below; none is an accepted training SHA. The full-sequence v2 baseline ran on clean source `4a83c68a199d8844e2d01038bd5d94d8dc377959`; the answer-bearing follow-up ran on clean source `d8e4d7df6d5a919acf2002783ed59af39e86d67f`. A future run must bind to the exact clean source SHA after owner review and merge of the dependency chain. |
+| 1 | Accepted source SHA | **None yet.** `main` is `32eca2b900c4f7a88294f7a24a5dfae0604ae798`. Open draft PRs are #18, #19, #20, #21, and #23–#28; #28 is the current D1 v3 candidate at `ccfc85421902d6e7b3fee195acaa0cf6c5300e30`. Its exact-head Foundation CI passed (run `45846169865`). Neither that candidate nor the other PR heads are an accepted training SHA. A future run must bind to the exact clean revision after owner review and merge of the dependency chain. |
 | 2 | Model configuration and parameter count | Native `Config::RESEARCH_CANDIDATE`: vocabulary 292, width 96, 8 layers, 4 heads, FFN width 256, context 128; **914,400 parameters**. Baseline seed was 107. The first-run seed and complete configuration are not frozen until the dataset and evaluation protocol are accepted. Weights are initialized by the project implementation; no pretrained model is used. |
-| 3 | Tokenizer artifact and digest | Objective A v2 candidate uses `byte-bpe-v1`, 32 train-only merges, vocabulary 292, artifact SHA-256 `a5a6e350d0863af2a41aeae9a73a6e07d304513f243d293c79e91eb61f39bd09`. Its fit record and artifact are independently reproduced from the 24 training rows. These candidate identities must be copied into and re-attested by a final immutable run bundle. |
-| 4 | Dataset manifest and digest | Candidate manifest-backed Objective A v2: dataset ID `2a5eda1b0668ee2ec9671b70b5becacc4e8479a28adec212853fd23d6d4d214c`; manifest SHA-256 `b3574cbcd769359ae4fc7ec4ff3f4df4f8fc5351cb004944826f87f9c38cfac1`. It has 48 project-authored synthetic rows (24 train, 12 validation, 12 public test). This improves identity and coverage over the two-row fixture but is **not admitted** as a sufficient experiment dataset. No external dataset was acquired. |
-| 5 | Split and leakage report | The v2 audit finds no normalized exact cross-split duplicate or held-out operand-combination overlap. It finds **23 cross-split pairs above the fixed 0.82 character-trigram Jaccard threshold**, maximum 0.930233; all 23 are within the same task family and same prompt template, with zero high-similarity cross-family or cross-template pairs. Each split has 12 rows per task family. Repeated templates, small size, and a public test split make this candidate inadequate for an independent generalization claim. |
-| 6 | Initial unchanged-weight baseline | Full-sequence baseline on clean source `4a83c68a199d8844e2d01038bd5d94d8dc377959`, seed 107, model digest `470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44`: train CE `5.696532329` (24 batches, 768 targets), validation CE `5.704625408` (12 batches, 384 targets), test CE `5.697565953` (12 batches, 384 targets). A separate unchanged-weight answer-bearing baseline on clean source `d8e4d7df6d5a919acf2002783ed59af39e86d67f` measured CE `5.695748897`/`5.752027055`/`5.743219521` over 89/46/46 answer-bearing targets. Eight answer starts cross BPE tokens, so this is not strict answer-only loss. Test access was tagged; neither baseline constructed an optimizer. These results do not show post-update learning or generalization. |
-| 7 | Multi-batch validation | Deterministic token-weighted evaluation now covers all 12 v2 validation batches and 384 supervised targets; the same baseline covers all 24 training batches and all 12 test batches. Ordering and split identities are reproducible. This candidate still has too few templated examples for a meaningful broad learning claim, and the final admitted dataset and experiment work limits remain undecided. |
-| 8 | Locked test evaluation | Training admission excludes validation and test splits; evaluator reports test access. The full-sequence v2 baseline read all 12 public test batches (384 targets); the answer-bearing supplemental test also read all 12 and tagged access. All answer ends align to token boundaries, but 8 starts fall inside merged tokens, so the new mask scores answer-bearing tokens, not strict answer-only loss or accuracy. The split is public, not a hidden holdout. A reviewed frozen test-access policy and adequate held-out coverage are still required; no post-training result exists. |
+| 3 | Tokenizer artifact and digest | Current v3 candidate uses `byte-bpe-v1`, 32 train-only merges, vocabulary 292, artifact SHA-256 `9ac03af34eaa496a54dc7721f83107ecdd14c26c643fb4c51d34de9afe77d6d0`. It was fitted on the 24 training records; a separate standard-library audit reproduced the artifact. This candidate identity must be re-attested in a final immutable run bundle. |
+| 4 | Dataset manifest and digest | Current v3 candidate: dataset ID `6b8d4b140c8d20636b206cb6259a1789a2734f5a13d7fd234e3d39aad3037c87`; manifest SHA-256 `db2577c6ed7f0f74c69b643dc9d74683c76084ddf8dc21bddc0ce072c56562b8`. It has 60 project-authored synthetic rows: 24 train, 18 validation, and 18 public test, with parity, integer comparison, and modular progression families. It is a reproducible software control, not yet an admitted learning benchmark. No external dataset was acquired. |
+| 5 | Split and leakage report | The v3 audit reports zero normalized exact cross-split duplicates, task-input overlap, template overlap, and cross-split pairs at or above 0.82 character-trigram Jaccard; the maximum is 0.461538. Templates and task inputs are partitioned by split. Limits remain: only 60 examples, one authored source/date, public test, no human review, and plausible task-family memorization; source/time generalization is not measured. |
+| 6 | Initial unchanged-weight baseline | On clean source `053b2703632921d9869215a2dad664d2f2b41733`, seed 107, unchanged state SHA `470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44`: full-sequence train/validation/public-test CE `5.702619792`/`5.700838645`/`5.699661671` (197/199/172 targets); answer-bearing validation/test CE `5.747362546`/`5.692370273` (28/27 targets). All were finite; no optimizer was constructed and no update occurred. Ten answer spans begin within merged BPE tokens, so answer-bearing is not strict answer-only loss. |
+| 7 | Multi-batch validation | V3 evaluates deterministic manifest-ordered batches and token-weights aggregation: 12 train batches and 9 each for validation and test. Full-sequence supervised counts are 197/199/172. Separate answer-bearing validation and test use 28/27 positions. The five baseline evaluators consumed 3,124,414,056 forward-work units in total. This confirms evaluation plumbing and unchanged-weight baseline behavior, not learning. |
+| 8 | Locked test evaluation | Training admission excludes validation and test data, and evaluation records explicit test access. The v3 baseline read all 9 batches of its public test split (172 full-sequence targets; 27 answer-bearing positions). Because the test is visible in Git and was read for baseline, it is **not a hidden or locked test set**. A reviewed test-access policy and truly held-out evaluation remain open; no post-training result exists. |
 | 9 | Optimizer and scheduler | Native AdamW and linear warmup/decay are implemented. The integration control uses AdamW `beta1=0.9`, `beta2=0.999`, `epsilon=1e-8`, weight decay `0.01`; its two-update schedule is a software test setting, not an accepted experiment choice. The earlier three-learning-rate sweep is retired. A single schedule must be predeclared against reviewed Objective A data before an experiment config is frozen. |
 | 10 | Numerical precision policy | Current candidate uses `f32` parameters, gradients, and Adam moment inventories. The optimizer and schedule use `f64` for relevant intermediate accumulation, bias-power, and schedule calculations before narrowing at defined update boundaries; evaluation aggregates token-weighted losses in `f64`. No mixed precision, quantization, CUDA backend, or external ML framework is included. This is the CPU reference policy; any future accelerated backend requires independent numerical parity first. |
-| 11 | Work budget | The manual CPU workflow caps a run at 24 updates, 768 consumed/supervised tokens, and 8,000,000,000 cumulative work units. The earlier 24-update proposal calculated 7,782,315,616 units before separate baseline and test work. The full-split v2 baseline consumed 3,210,948,288 forward-work units; the answer-bearing baseline test consumed 3,208,574,328. Each is a complete three-split pass, so adding the full-sequence baseline to the proposal yields 10,993,263,904 units, exceeding the cap by 2,993,263,904 before recovery overhead. The answer-bearing pass is supplemental evidence, not a reason to run both baseline variants in the proposed experiment. The work budget still must be redesigned from accepted data and measured complete workload. |
+| 11 | Work budget | The manual CPU workflow caps runs at 24 updates, 768 consumed/supervised tokens, and 8,000,000,000 cumulative work units. The retired v2 24-update proposal used 7,782,315,616 units before baseline/test; adding its full-split baseline exceeded the ceiling. The v3 five-evaluator unchanged-weight baseline alone measured 3,124,414,056 units. No v3 update workload was measured: the attempted paired `[2,16]` batch was rejected by the candidate trainer's `[1,32]` shape contract before an update. Therefore 24 updates/768 tokens are not selected or established as sufficient; full work must be recalculated after an admitted training input and protocol exist. |
 | 12 | Memory budget | Workflow ceilings are 64 MiB run-owned memory, 64 MiB autograd allowance, 4 MiB data allowance, and 16 MiB checkpoint size. The two-update Objective A v1 control's hosted release sample reported application-owned peak 42,439,416 bytes, autograd-ledger peak 30,682,296 bytes, and process high-water 121,409,536 bytes; a local sample reported process high-water 130,641,920 bytes. Application ledgers are not hard RSS limits. These are tiny regression controls, not the full v2 experiment. |
-| 13 | Runtime budget | Workflow caps are 120 seconds active run time and 90 seconds per attempt; the job timeout is 10 minutes and the outer process timeout is 240 seconds with a 30-second termination grace. The Objective A v1 two-update release control measured 18.913 supervised targets/second locally and 46.104 on one hosted Actions run; debug measured 2.048 locally. The v2 full-sequence unchanged-weight release baseline took 10.82 seconds after compilation. The answer-bearing baseline test took 10.23 seconds in release and 78.88 seconds in debug (a prior debug sample was 74.36 seconds). These separate software-test measurements do not validate a full training plus evaluation/checkpoint workload. The exact workload has not been measured three times on the candidate provider; the 120-second cap remains unverified. |
+| 13 | Runtime budget | Workflow caps are 120 seconds active runtime and 90 seconds per attempt; job timeout is 10 minutes and outer process timeout is 240 seconds with a 30-second termination grace. Historical two-update v1 controls measured 18.913 targets/s local release and 46.104 targets/s on one hosted Actions run. The v3 unchanged-weight baseline test took 91.38 seconds in local debug; the full release training-crate suite took 25.08 seconds, which is not a provider workload benchmark. These measurements do not validate a complete train/evaluate/checkpoint workload. No three repeated candidate-provider measurements exist, so the 120-second cap remains unverified. |
 | 14 | Checkpoint and recovery | Local checkpoint publication is staged, synced, SHA-256 checked, atomically renamed, and directory-synced; checkpoint semantics and resume compatibility are validated. D2 defines the recovery inventory and interrupted-transfer procedure. The repository is public, Actions artifacts are not private storage, and no remote private destination, upload interruption, restore, resume, or remote retention lifecycle has been exercised. The proposed retention is the primary recovery set plus one verified private copy through review and at least 30 days afterward; it is not an active provider policy. |
 | 15 | Logging and monitoring | Runtime-owned JSONL metrics, journal counters, failure/final reports, checkpointing, stop requests, and handoff/integrity metadata are implemented. Resource limits and safe-boundary stop behavior are runtime enforced within the stated application limits. Local detached-process lifecycle tests pass; provider disconnect, remote artifact survival, and remote cleanup remain unverified. AI-agent continuous monitoring is not part of the design. |
 | 16 | Compute provider rationale | GitHub Actions remains the default for bounded CI, numerical oracles, and regression. The public `ubuntu-24.04` runner is documented as 4 vCPUs, 16 GB RAM, and 14 GB SSD; bounded CI is 15 minutes, while the manual CPU workflow caps the run at 120 seconds and the job at 10 minutes. No training workflow was dispatched. The installed Colab CLI `0.8.0` was inspected read-only: CPU is the default; GPU/TPU options exist, but there is no native XYNOOS GPU backend. `colab sessions` showed no active sessions, `colab usage` was inspected without recording account balance, and no runtime was created. No provider is selected because the full CPU workload is unmeasured and detached Colab, transfer integrity, persistence, and cleanup remain unverified. |
@@ -52,7 +58,8 @@ merge has occurred:
 | R2 runtime remediation | `21d9990760380195b9d9379b6d43f848ad6c17df` | [#21](https://github.com/samuelindra123/xynoos-cyber-model/pull/21) | Foundation CI [45772399582](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45772399582), all 29 steps passed |
 | C3 re-verification | `b7656abbc38703b3a34652cc5c7f9435a2b0c32c` | [#23](https://github.com/samuelindra123/xynoos-cyber-model/pull/23) | Exact-head Foundation CI [45824251360](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45824251360) passed; the five auditor-authored tests and 170 debug/release checks succeeded. |
 | D1 evaluation | `92da22973914ab36055c4aa6d32143747d9a372f` | [#24](https://github.com/samuelindra123/xynoos-cyber-model/pull/24) | Foundation CI [45781385665](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45781385665), all 33 steps passed |
-| D1 Objective A v2 candidate | `546c58a710ee7a8edf3a7d96495fd04e9838a221` | [#28](https://github.com/samuelindra123/xynoos-cyber-model/pull/28) | Exact-head Foundation CI [45831989897](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45831989897) passed all 33 steps, including the 182-check debug/release totals. |
+| D1 Objective A v2 candidate (historical) | `546c58a710ee7a8edf3a7d96495fd04e9838a221` | [#28](https://github.com/samuelindra123/xynoos-cyber-model/pull/28) | Exact-head Foundation CI [45831989897](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45831989897) passed; superseded as the current corpus candidate. |
+| D1 Objective A v3 candidate | `ccfc85421902d6e7b3fee195acaa0cf6c5300e30` | [#28](https://github.com/samuelindra123/xynoos-cyber-model/pull/28) | Exact-head Foundation CI [45846169865](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45846169865) succeeded: 185 debug/release tests/doctests, numerical and corpus audits, resource checks, and Rust documentation. PR remains an open draft. |
 | D2 private-persistence preparation | `3cf67c9e389e7b00ab5b9df9cf045c6f465f255c` | [#25](https://github.com/samuelindra123/xynoos-cyber-model/pull/25) | Foundation CI [45784299844](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45784299844), all 33 steps passed |
 | D3 compute readiness | `20bcb3cfb9f257932d2e099845b9f3032d8732ff` | [#26](https://github.com/samuelindra123/xynoos-cyber-model/pull/26) | Exact-head Foundation CI [45824896343](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45824896343) passed all steps. |
 
@@ -76,15 +83,17 @@ run exists.
   test disables Git optional index writes so its file-size limit reaches the
   staging write after source attestation; no runtime implementation behavior
   is bypassed.
-- D1 deterministic multi-batch, token-weighted evaluation, split admission,
-  test-access reporting, a full-split v2 unchanged-weight baseline, and an
-  independent split/tokenizer leakage audit. The v2 candidate remains too
-  small and templated for admission.
-- D1 answer-bearing baseline test over all 48 examples; all Rust loss-mask
-  positions matched a separate Python standard-library audit fixture. The
-  check remains implementation-authored, and eight partial-token answer
-  starts prevent a strict answer-only claim. No post-update improvement was
-  demonstrated.
+- D1 deterministic multi-batch, token-weighted evaluation and split
+  admission; the v3 unchanged-weight baseline and standard-library split and
+  tokenizer audit are recorded on the draft candidate. The audit finds no
+  tested cross-split template/task-input overlap, but the corpus remains
+  small, public, single-source, and unreviewed.
+- D1 answer-bearing baseline positions were cross-checked against the v3
+  audit fixture. Ten answer starts intersect merged BPE tokens, so this is
+  not strict answer-only loss. No post-update improvement was demonstrated.
+- The attempted v3 paired-batch harness was rejected at the existing `[1,32]`
+  trainer shape contract before an optimizer update; it was removed. No
+  training behavior is claimed from it.
 - D2 owner-only local artifacts, checkpoint integrity and atomic publication,
   and a documented recovery inventory/procedure.
 - D3 bounded workflow and CLI capability inspection; local Objective A
@@ -101,15 +110,19 @@ run exists.
 
 ### Not verified or not accepted
 
-- An adequate manifest-backed Objective A corpus or independently reviewed
-  split/leakage analysis. The 48-row v2 candidate has 23 near-duplicate
-  cross-split pairs above the fixed threshold and does not provide meaningful
-  held-out generalization evidence.
-- A hidden/locked test artifact suitable for first-run generalization
-  measurement; v2's 12-row-per-family test split is public.
-- A post-update answer-bearing validation improvement or strict answer-only
-  evaluation. The current answer-bearing baseline is unchanged-weight only,
-  and eight answer starts intersect BPE tokens that include prompt bytes.
+- An admitted Objective A learning benchmark and independent human review.
+  The v3 60-row candidate has no tested cross-split exact, task-input,
+  template, or >=0.82 trigram-similarity overlaps, but has one source/date,
+  a small task inventory, a public test, and no human quality review.
+- A locked/hidden test artifact. V3's public test was read for its initial
+  baseline and cannot support a hidden holdout claim.
+- A post-update validation improvement or strict answer-only metric. V3 has
+  unchanged-weight evidence only, and ten answer spans begin inside merged
+  BPE tokens that also contain prompt bytes.
+- A training data path that supports the v3 batch representation or a
+  separately verified candidate training input. The `[2,16]` evaluation
+  batches are incompatible with the current trainer `[1,32]` contract; no
+  update was attempted after that validation rejection.
 - A separate reviewer independent of the R2/C3 author accepting the runtime
   remediation. C3 is a separate verification pass with auditor-authored
   controls, but the same autonomous author implemented and audited it.
@@ -126,20 +139,23 @@ run exists.
 
 1. Obtain separate human/independent review of the frozen R2 implementation
    and C3 evidence; review and merge the dependent engineering PRs.
-2. Replace or materially redesign the Objective A v2 candidate and obtain
-   independent review of its manifest, tokenizer provenance, held-out family
-   coverage, near-duplicate/leakage report, and test-access policy. Keep test
-   data isolated from schedule choice. The current v2 corpus is a reproducible
-   software control, not an admitted learning benchmark.
+2. Have an independent reviewer assess Objective A v3 task validity,
+   tokenizer provenance, held-out family coverage, leakage limits, and
+   test-access policy. Keep test data out of schedule selection. Decide
+   whether v3 is adequate for a narrow engineering learning control or
+   prepare a reviewed alternative; it currently establishes evaluation
+   software behavior only.
 3. Select an owner-controlled private checkpoint destination and retention
    policy, then pass a bounded non-training interrupted-upload, digest,
    restore, checkpoint-inspection, resume, and cleanup exercise. Confirm any
    permissions and cost/egress budget first.
-4. Derive one experiment's update count, validation cadence, work, memory,
-   data, and runtime limits from the frozen dataset. Repeat the complete
-   candidate CPU workload at least three times in the intended bounded
-   provider; capture throughput, wall time, work, both application memory
-   ledgers, process RSS/high-water, checkpoint time, and recovery outcome.
+4. Resolve the v3 `[2,16]` evaluation versus trainer `[1,32]` input mismatch
+   with a verified, semantically correct training data path. Then derive one
+   experiment's updates, validation cadence, work, memory, data, and runtime
+   limits from the frozen dataset. Repeat its complete CPU workload at least
+   three times in the intended bounded provider, recording throughput, wall
+   time, work, both memory ledgers, process RSS/high-water, checkpoint time,
+   and recovery outcome.
 5. Freeze the exact merged clean source SHA, configuration and all data
    digests, predeclared optimizer/schedule and acceptance criteria. Confirm
    private artifact handling and provider lifecycle before selecting a
@@ -150,11 +166,12 @@ run exists.
 ## Final disposition
 
 The runtime, scientific-evaluation code, local checkpoint integrity, bounded
-workflow, and exact-head CI evidence are prepared. The v2 baseline also shows
-that the prior 24-update proposal exceeds the 8-billion-work ceiling when its
-complete initial baseline is included. Current evidence does not establish
-adequate scientific data, independent acceptance, private remote persistence,
-or provider-specific full-workload fit. Therefore the first experiment is
-**not dispatch-ready**. Complete the blockers above and issue a fresh
-acceptance against the exact merged source and frozen run bundle before any
-owner-authorized dispatch.
+workflow, and exact-head CI evidence are prepared. The v3 baseline consumes
+3,124,414,056 forward-work units for its five unchanged-weight evaluators;
+the retired v2 24-update proposal plus its baseline exceeded the 8-billion
+ceiling. No v3 optimizer workload was measured. Current evidence does not
+establish an admitted learning benchmark, independent acceptance, private
+remote persistence, or provider-specific full-workload fit. The first
+experiment is **not dispatch-ready**. Complete the blockers above and issue
+a fresh acceptance against the exact merged source and frozen run bundle
+before any owner-authorized dispatch.
