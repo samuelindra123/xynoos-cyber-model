@@ -88,6 +88,9 @@ does not upload model checkpoints. A training job is not selected because the
 scientific data and private persistence gates are open, not because a GPU is
 available. The installed Colab CLI was inspected without creating a runtime;
 detached execution, artifact persistence, and cleanup remain unverified. See
-the [TASK 006-D3 compute assessment](../reports/TASK-006-D3-COMPUTE-ASSESSMENT.md).
+the [TASK 006-D3 compute assessment](../reports/TASK-006-D3-COMPUTE-READINESS.md).
+
+The complete evidence and remaining gates are tracked in the [TASK 006-E
+first-training readiness package](../reports/TASK-006-E-FIRST-TRAINING-READINESS.md).
 
 This document is not an experiment configuration and does not authorize a run.
