@@ -31,6 +31,15 @@ This is Objective A only: a small deterministic software control over three auth
 
 The native data integration test opens the manifest, fits and verifies the tokenizer from train only, checks the saved fit record and artifact, and streams all three splits deterministically. It verifies 24/12/12 complete batches of 32 supervised targets and matching repeatable order identities.
 
+A separate native trainer integration check exercises the manifest-backed train
+and validation streams with the candidate model, the CLI's bounded dataset
+memory plan, two updates, 64 supervised training targets, two validation
+batches, and checkpoint publication. It asserts source attestation, committed
+optimizer steps, parameter change, validation logging, and no test-split access.
+This is bounded software plumbing coverage; two updates and 64 targets are not
+claimed to establish learning sufficiency, and this test is not a training
+experiment.
+
 ## Unchanged-weight baseline
 
 The native evaluator completed a manifest-backed baseline at the clean source
