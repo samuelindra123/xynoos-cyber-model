@@ -120,6 +120,15 @@ or full validation coverage. This is an isolated integration control, not a
 TASK 006-D experiment or evidence that two updates are scientifically
 sufficient.
 
+Exact-head Foundation CI for the D1 v3 candidate passed at
+`464adc382b41396bd395a8db4248f9fbc57aecdf` in [run 45855234814](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45855234814).
+All 33 workflow steps succeeded, including 187 debug and 187 release checks,
+independent numerical and corpus fixtures, the 8-billion work policy checks,
+repository hygiene, and Rust documentation. Earlier run `45853200528` failed
+only because its accepted-check guard still expected 185 after the two new
+v3 controls; the guard was updated to 187 and the corrected exact-head run
+passed.
+
 The latest local workspace runs at source `053b2703632921d9869215a2dad664d2f2b41733`
 passed 185 debug and 185 release checks. The 101-observation deterministic
 learning trajectory matched bit-for-bit across profiles with the preserved
