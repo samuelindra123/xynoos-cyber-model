@@ -2207,9 +2207,9 @@ mod tests {
         .unwrap();
         let limits = RunLimits::new(
             1,
-            1,
-            32,
-            32,
+            2,
+            64,
+            64,
             8_000_000_000,
             ResourceLimits::MAX_BYTES,
             Duration::from_secs(120),
@@ -2220,7 +2220,7 @@ mod tests {
         .unwrap();
         let config = TrainingConfig::new(
             AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
-            LinearWarmupDecay::new(1, 0, 1e-3, 1e-4).unwrap(),
+            LinearWarmupDecay::new(2, 0, 1e-3, 1e-4).unwrap(),
             limits,
             TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap(),
             ResourceLimits::default(),
@@ -2271,12 +2271,12 @@ mod tests {
             .map(|value| value.to_bits())
             .collect();
         assert_eq!(report.stop_reason, StopReason::ScheduleComplete);
-        assert_eq!(report.counters.completed_updates, 1);
-        assert_eq!(report.counters.committed_cursor, 1);
-        assert_eq!(report.counters.committed_consumed_tokens, 32);
-        assert_eq!(report.counters.committed_supervised_tokens, 32);
-        assert_eq!(report.counters.validation_supervised_tokens, 32);
-        assert_eq!(trainer.optimizer().step_count(), 1);
+        assert_eq!(report.counters.completed_updates, 2);
+        assert_eq!(report.counters.committed_cursor, 2);
+        assert_eq!(report.counters.committed_consumed_tokens, 64);
+        assert_eq!(report.counters.committed_supervised_tokens, 64);
+        assert_eq!(report.counters.validation_supervised_tokens, 64);
+        assert_eq!(trainer.optimizer().step_count(), 2);
         assert!(report.last_loss.is_some_and(f64::is_finite));
         assert_ne!(
             before, after,
