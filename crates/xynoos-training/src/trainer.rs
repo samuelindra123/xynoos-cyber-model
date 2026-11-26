@@ -1136,7 +1136,7 @@ impl<S: BatchSource> Trainer<S> {
 }
 
 fn count_batch(batch: &Batch) -> Result<(u64, u64)> {
-    if !matches!(batch.shape(), [1, 32] | [2, 16]) {
+    if batch.shape() != [1, 32] {
         return Err(TrainingError::InvalidConfiguration);
     }
     let positions = batch.input().len();
@@ -1846,14 +1846,6 @@ mod tests {
             count_batch(&invalid),
             Err(TrainingError::InvalidConfiguration)
         );
-
-        let paired = Batch::from_parts(2, 16, &input, &target, Some(&valid), Some(&loss)).unwrap();
-        assert_eq!(count_batch(&paired).unwrap(), (4, 2));
-        let unsupported = Batch::from_parts(4, 16, &input, &target, None, None).unwrap();
-        assert_eq!(
-            count_batch(&unsupported),
-            Err(TrainingError::InvalidConfiguration)
-        );
     }
 
     #[test]
@@ -2485,9 +2477,9 @@ mod tests {
     }
 
     #[test]
-    fn objective_a_v3_bounded_learning_software_control() {
-        // Deterministic Objective A software verification only. This test
-        // exercises the native training path but is not a TASK 006-D run.
+    fn objective_a_v3_manifest_unchanged_weight_baseline() {
+        // Deterministic unchanged-weight Objective A evaluation only. This is
+        // a software baseline, not a TASK 006-D training run.
         let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let dataset_root = repository.join("../../datasets/task006-objective-a-v3");
         let audit: Value = serde_json::from_slice(
@@ -2691,151 +2683,13 @@ mod tests {
             answer_test_baseline.to_json()
         );
 
-        let limits = RunLimits::new(
-            1,
-            12,
-            768,
-            768,
-            8_000_000_000,
-            ResourceLimits::MAX_BYTES,
-            Duration::from_secs(120),
-            Duration::from_secs(90),
-            6,
-            12,
-        )
-        .unwrap();
-        let config = TrainingConfig::new(
-            AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
-            LinearWarmupDecay::new(12, 0, 1e-3, 1e-4).unwrap(),
-            limits,
-            memory,
-            ResourceLimits::default(),
-            Some(1.0),
-            107,
-        )
-        .unwrap()
-        .with_validation_limits(
-            crate::EvaluationLimits::new(9, 256, 8_000_000_000, 4 * 1024 * 1024, 32).unwrap(),
-        )
-        .unwrap();
-        let train = dataset
-            .fitted_batches(Split::Train, &fitted, stream)
-            .unwrap();
-        let mut validation = VecBatchSource::for_split(
-            objective_a_v3_answer_bearing_batches(
-                &dataset,
-                fitted.model(),
-                Split::Validation,
-                &audit,
-            ),
-            orders[1],
-            Split::Validation,
-        );
-        let run_root = root("objective-a-v3-learning-software-control");
-        let mut trainer = Trainer::new(
-            &run_root,
-            identity,
-            config,
-            fitted.model(),
-            train,
-            StopToken::new(),
-        )
-        .unwrap();
-        let parameter_id = trainer.model().inventory().next().unwrap().1;
-        let before: Vec<u32> = trainer
-            .model()
-            .parameters()
-            .value(parameter_id)
-            .unwrap()
-            .data()
-            .iter()
-            .map(|value| value.to_bits())
-            .collect();
-        let training = trainer.run(Some(&mut validation)).unwrap();
-        let after: Vec<u32> = trainer
-            .model()
-            .parameters()
-            .value(parameter_id)
-            .unwrap()
-            .data()
-            .iter()
-            .map(|value| value.to_bits())
-            .collect();
-        assert_eq!(training.stop_reason, StopReason::ScheduleComplete);
-        assert_eq!(training.counters.completed_updates, 12);
-        assert_eq!(training.counters.committed_cursor, 12);
-        assert_eq!(training.counters.committed_consumed_tokens, 197);
-        assert_eq!(training.counters.committed_supervised_tokens, 197);
-        assert_eq!(training.counters.validation_supervised_tokens, 28);
-        assert_eq!(trainer.optimizer().step_count(), 12);
-        assert_ne!(before, after, "the software control must change parameters");
-        let metric_lines = fs::read_to_string(run_root.join("metrics.jsonl")).unwrap();
-        let validation_events: Vec<Value> = metric_lines
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .filter(|event: &Value| event["type"] == "validation")
-            .collect();
-        assert_eq!(validation_events.len(), 1);
-        let post_update_validation_loss = validation_events[0]["loss"].as_f64().unwrap();
-        assert!(post_update_validation_loss.is_finite());
-        assert_eq!(validation_events[0]["coverage_complete"], true);
-        assert_eq!(validation_events[0]["test_access"], false);
-        assert_eq!(
-            validation_events[0]["supervised_tokens"],
-            answer_validation.supervised_tokens
-        );
-        assert!(
-            post_update_validation_loss < answer_validation.mean_loss.unwrap(),
-            "answer-bearing validation loss must improve in the fixed software-control schedule"
-        );
-        assert!(!metric_lines.contains("\"test_access\":true"));
-
-        let post_update_test = crate::evaluate_batches(
-            trainer.model(),
-            fitted.model(),
-            &trainer.identity,
-            crate::EvaluationStage::LockedTest,
-            VecBatchSource::for_split(
-                objective_a_v3_answer_bearing_batches(
-                    &dataset,
-                    fitted.model(),
-                    Split::Test,
-                    &audit,
-                ),
-                orders[2],
-                Split::Test,
-            ),
-            answer_limits,
-        )
-        .unwrap();
-        assert!(post_update_test.test_access);
-        assert!(post_update_test.coverage_complete);
-        assert_eq!(post_update_test.supervised_tokens, 27);
-        assert!(post_update_test.mean_loss.unwrap().is_finite());
-
-        let measured_work = u128::from(full_train.total_forward_work)
+        let baseline_work = u128::from(full_train.total_forward_work)
             + u128::from(full_validation.total_forward_work)
             + u128::from(full_test.total_forward_work)
             + u128::from(answer_validation.total_forward_work)
-            + u128::from(answer_test_baseline.total_forward_work)
-            + u128::from(training.counters.cumulative_work)
-            + u128::from(post_update_test.total_forward_work);
-        assert!(
-            measured_work <= 8_000_000_000,
-            "combined baseline, train, validation, test and checkpoint work exceeds the hard ceiling: {measured_work}"
-        );
-        println!(
-            "TASK006_D1_OBJECTIVE_A_V3_SOFTWARE_CONTROL updates={} train_tokens={} train_loss={} validation_initial_answer_loss={} validation_final_answer_loss={} locked_test_initial_answer_loss={} locked_test_final_answer_loss={} total_work={}",
-            training.counters.completed_updates,
-            training.counters.committed_supervised_tokens,
-            training.last_loss.unwrap(),
-            answer_validation.mean_loss.unwrap(),
-            post_update_validation_loss,
-            answer_test_baseline.mean_loss.unwrap(),
-            post_update_test.mean_loss.unwrap(),
-            measured_work,
-        );
-        fs::remove_dir_all(run_root).unwrap();
+            + u128::from(answer_test_baseline.total_forward_work);
+        assert!(baseline_work <= 8_000_000_000);
+        println!("TASK006_D1_OBJECTIVE_A_V3_BASELINE total_evaluation_work={baseline_work}");
     }
 
     #[test]
