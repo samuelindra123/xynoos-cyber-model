@@ -2,15 +2,51 @@ use std::{path::Path, process::Command};
 
 pub const SOURCE_REPOSITORY_ID: &str = "samuelindra123/xynoos-cyber-model";
 
+/// Opaque proof that a clean canonical checkout matched the training crate's
+/// compiled repository and revision.
+///
+/// External callers cannot construct this value directly:
+///
+/// ```compile_fail
+/// use xynoos_training::SourceIdentity;
+/// let forged = SourceIdentity {
+///     repository_id: "samuelindra123/xynoos-cyber-model".to_owned(),
+///     revision: "0".repeat(40),
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceIdentity {
-    pub repository_id: String,
-    pub revision: String,
+    repository_id: String,
+    revision: String,
+}
+
+impl SourceIdentity {
+    pub fn repository_id(&self) -> &str {
+        &self.repository_id
+    }
+
+    pub fn revision(&self) -> &str {
+        &self.revision
+    }
 }
 
 /// Confirm that the checkout used to build the runtime is the clean checkout
 /// named by the immutable experiment configuration.
 pub fn attest_source_checkout(
+    path: &Path,
+    configured_repository_id: &str,
+    configured_revision: &str,
+) -> Result<SourceIdentity, String> {
+    attest_source_checkout_with_build(
+        path,
+        env!("XYNOOS_BUILD_REPOSITORY_ID"),
+        env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        configured_repository_id,
+        configured_revision,
+    )
+}
+
+fn attest_source_checkout_with_build(
     path: &Path,
     build_repository_id: &str,
     build_revision: &str,
@@ -192,7 +228,7 @@ mod tests {
         ]);
         let revision = git(&["rev-parse", "HEAD"]);
 
-        let identity = attest_source_checkout(
+        let identity = attest_source_checkout_with_build(
             &root,
             SOURCE_REPOSITORY_ID,
             &revision,
@@ -200,12 +236,12 @@ mod tests {
             &revision,
         )
         .unwrap();
-        assert_eq!(identity.repository_id, SOURCE_REPOSITORY_ID);
-        assert_eq!(identity.revision, revision);
+        assert_eq!(identity.repository_id(), SOURCE_REPOSITORY_ID);
+        assert_eq!(identity.revision(), revision);
 
         fs::write(root.join("untracked.txt"), "must be rejected\n").unwrap();
         assert!(
-            attest_source_checkout(
+            attest_source_checkout_with_build(
                 &root,
                 SOURCE_REPOSITORY_ID,
                 &revision,
@@ -219,7 +255,7 @@ mod tests {
 
         fs::write(root.join("tracked.txt"), "modified\n").unwrap();
         assert!(
-            attest_source_checkout(
+            attest_source_checkout_with_build(
                 &root,
                 SOURCE_REPOSITORY_ID,
                 &revision,
@@ -243,7 +279,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            attest_source_checkout(
+            attest_source_checkout_with_build(
                 &root,
                 SOURCE_REPOSITORY_ID,
                 &revision,
@@ -256,7 +292,7 @@ mod tests {
         fs::remove_dir_all(root.join("crates")).unwrap();
 
         assert!(
-            attest_source_checkout(
+            attest_source_checkout_with_build(
                 &root,
                 SOURCE_REPOSITORY_ID,
                 &revision,
@@ -266,7 +302,7 @@ mod tests {
             .is_err()
         );
         assert!(
-            attest_source_checkout(
+            attest_source_checkout_with_build(
                 &root,
                 SOURCE_REPOSITORY_ID,
                 &revision,
@@ -276,5 +312,23 @@ mod tests {
             .is_err()
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn public_attestation_uses_compiled_provenance_and_checks_config_claims() {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(env!("CARGO_MANIFEST_DIR"))
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let root = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim());
+        let revision = env!("XYNOOS_BUILD_SOURCE_REVISION");
+        let identity = attest_source_checkout(root, SOURCE_REPOSITORY_ID, revision).unwrap();
+        assert_eq!(identity.repository_id(), SOURCE_REPOSITORY_ID);
+        assert_eq!(identity.revision(), revision);
+        assert!(attest_source_checkout(root, "unverified/project", revision).is_err());
+        assert!(attest_source_checkout(root, SOURCE_REPOSITORY_ID, &"0".repeat(40)).is_err());
     }
 }

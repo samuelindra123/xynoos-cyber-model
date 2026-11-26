@@ -8,7 +8,7 @@ use xynoos_data::{Dataset, Split};
 use xynoos_tokenizer::{Tokenizer, TokenizerArtifact, TokenizerLimits};
 use xynoos_transformer::Config;
 
-use crate::provenance::SOURCE_REPOSITORY_ID;
+use crate::provenance::{SOURCE_REPOSITORY_ID, SourceIdentity};
 use crate::{LinearWarmupDecay, Result, TrainingError, TrainingMemoryPlan};
 
 pub const MODEL_ID: &str = "xynoos-cyber-0.1";
@@ -147,8 +147,7 @@ impl RunIdentity {
     /// tokenizer artifact, and the exact deterministic train/validation
     /// stream orders admitted by the native runtime.
     pub fn from_standard_dataset(
-        source_revision: String,
-        source_clean: bool,
+        source_identity: SourceIdentity,
         dataset: &Dataset,
         tokenizer: &Tokenizer,
         data_order_identity: [u8; 32],
@@ -156,9 +155,9 @@ impl RunIdentity {
     ) -> Result<Self> {
         let artifact = TokenizerArtifact::serialize(tokenizer, TokenizerLimits::MAX)
             .map_err(|_| TrainingError::InvalidIdentity)?;
-        let identity = Self::new(
-            source_revision,
-            source_clean,
+        let mut identity = Self::new(
+            source_identity.revision().to_owned(),
+            true,
             dataset.manifest().dataset_id.clone(),
             dataset.manifest_sha256(),
             split_identity(dataset, Split::Train),
@@ -172,13 +171,14 @@ impl RunIdentity {
             data_order_identity,
             validation_order_identity,
         );
+        identity.source_repository_id = source_identity.repository_id().to_owned();
         identity.validate(tokenizer)?;
         identity.validate_dataset(dataset)?;
         Ok(identity)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         source_revision: String,
         source_clean: bool,
         dataset_id: String,

@@ -462,12 +462,12 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
     let repository_id = string_value(top, "repository_id")?;
     let source_identity = attest_source_checkout(
         Path::new(env!("CARGO_MANIFEST_DIR")),
-        env!("XYNOOS_BUILD_REPOSITORY_ID"),
-        env!("XYNOOS_BUILD_SOURCE_REVISION"),
         repository_id,
         &source_revision,
     )
     .map_err(|error| format!("source identity: {error}"))?;
+    let source_repository_id = source_identity.repository_id().to_owned();
+    let verified_source_revision = source_identity.revision().to_owned();
     if string_value(top, "source_kind")? != "manifest-v1-stream" {
         return Err("unsupported source_kind; only manifest-v1-stream is admitted".into());
     }
@@ -693,8 +693,7 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
         return Err("dataset identity does not match immutable configuration".into());
     }
     let identity = RunIdentity::from_standard_dataset(
-        source_identity.revision.clone(),
-        true,
+        source_identity,
         &dataset,
         tokenizer_model,
         train_order,
@@ -730,8 +729,8 @@ fn prepare(config_path: &Path) -> CliResult<Prepared> {
     Ok(Prepared {
         config_sha256: Sha256::digest(&raw_config).into(),
         experiment_id,
-        source_repository_id: source_identity.repository_id,
-        source_revision: source_identity.revision,
+        source_repository_id,
+        source_revision: verified_source_revision,
         dataset_id: dataset.manifest().dataset_id.clone(),
         identity,
         config,
