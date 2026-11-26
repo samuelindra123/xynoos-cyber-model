@@ -223,7 +223,28 @@ while not os.path.exists(sys.argv[3]):
 fn independent_source_attestation_rejects_wrong_revision_dirty_and_ignored_sources() {
     let scratch = Scratch::new("source");
     let root = scratch.0.join("checkout");
-    fs::create_dir_all(&root).unwrap();
+    let build_root = Command::new("git")
+        .arg("-C")
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .unwrap();
+    assert!(build_root.status.success());
+    let build_root = String::from_utf8(build_root.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    let clone = Command::new("git")
+        .args(["clone", "--quiet", "--local"])
+        .arg(&build_root)
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(
+        clone.status.success(),
+        "git clone: {}",
+        String::from_utf8_lossy(&clone.stderr)
+    );
     let git = |arguments: &[&str]| {
         let output = Command::new("git")
             .arg("-C")
@@ -238,53 +259,40 @@ fn independent_source_attestation_rejects_wrong_revision_dirty_and_ignored_sourc
         );
         String::from_utf8(output.stdout).unwrap().trim().to_owned()
     };
-    git(&["init", "--quiet"]);
-    git(&["config", "user.name", "C3 audit"]);
-    git(&["config", "user.email", "c3@example.invalid"]);
-    fs::create_dir_all(root.join("crates/xynoos-training/src")).unwrap();
-    fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
-    fs::write(
-        root.join("crates/xynoos-training/src/lib.rs"),
-        "// fixture\n",
-    )
-    .unwrap();
-    git(&["add", "Cargo.toml", "crates/xynoos-training/src/lib.rs"]);
-    git(&["commit", "--quiet", "-m", "auditor source fixture"]);
     git(&[
         "remote",
-        "add",
+        "set-url",
         "origin",
         "https://github.com/samuelindra123/xynoos-cyber-model.git",
     ]);
     let revision = git(&["rev-parse", "HEAD"]);
     let canonical = xynoos_training::SOURCE_REPOSITORY_ID;
-    assert!(attest_source_checkout(&root, canonical, &revision, canonical, &revision).is_ok());
-    assert!(
-        attest_source_checkout(&root, canonical, &revision, canonical, &"0".repeat(40)).is_err()
-    );
-    assert!(
-        attest_source_checkout(&root, canonical, &revision, "other/project", &revision).is_err()
-    );
+    assert_eq!(revision, env!("XYNOOS_BUILD_SOURCE_REVISION"));
+    let identity = attest_source_checkout(&root, canonical, &revision).unwrap();
+    assert_eq!(identity.repository_id(), canonical);
+    assert_eq!(identity.revision(), revision);
+    assert!(attest_source_checkout(&root, canonical, &"0".repeat(40)).is_err());
+    assert!(attest_source_checkout(&root, "other/project", &revision).is_err());
 
-    fs::write(root.join("Cargo.toml"), "[workspace]\n# modified\n").unwrap();
+    let cargo_manifest = fs::read(root.join("Cargo.toml")).unwrap();
+    fs::write(root.join("Cargo.toml"), b"[workspace]\n# modified\n").unwrap();
     assert!(
-        attest_source_checkout(&root, canonical, &revision, canonical, &revision)
+        attest_source_checkout(&root, canonical, &revision)
             .unwrap_err()
             .contains("dirty")
     );
-    fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
-    fs::write(
-        root.join(".git/info/exclude"),
-        "/crates/xynoos-training/src/ignored.rs\n",
-    )
-    .unwrap();
+    fs::write(root.join("Cargo.toml"), cargo_manifest).unwrap();
+    let exclude = root.join(".git/info/exclude");
+    let mut excluded = fs::read_to_string(&exclude).unwrap_or_default();
+    excluded.push_str("\n/crates/xynoos-training/src/ignored.rs\n");
+    fs::write(exclude, excluded).unwrap();
     fs::write(
         root.join("crates/xynoos-training/src/ignored.rs"),
         "// ignored implementation\n",
     )
     .unwrap();
     assert!(
-        attest_source_checkout(&root, canonical, &revision, canonical, &revision)
+        attest_source_checkout(&root, canonical, &revision)
             .unwrap_err()
             .contains("ignored untracked")
     );
