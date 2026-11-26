@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant},
@@ -461,6 +461,8 @@ fn concurrent_detached_launch_attempts_start_at_most_one_lineage_owner() {
                 .arg("--artifact-root")
                 .arg(&root)
                 .arg("--detach")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .unwrap(),
         );
