@@ -1,6 +1,8 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufReader, BufWriter, Read, Write},
+    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -207,6 +209,7 @@ impl CheckpointCodec {
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&temp)?;
         let result = (|| {
             let mut output = StreamWriter::new(BufWriter::with_capacity(IO_BUFFER, file));
@@ -790,6 +793,9 @@ fn validate_root(root: &Path) -> Result<()> {
             return Err(TrainingError::InvalidConfiguration);
         }
         if !metadata.is_dir() {
+            return Err(TrainingError::InvalidConfiguration);
+        }
+        if current == root && metadata.permissions().mode() & 0o077 != 0 {
             return Err(TrainingError::InvalidConfiguration);
         }
     }
@@ -1884,6 +1890,7 @@ mod tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
     }
 
@@ -1897,6 +1904,43 @@ mod tests {
             TokenizerLimits::MAX,
         )
         .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn published_checkpoint_is_private_to_the_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tokenizer = tokenizer();
+        let config = config();
+        let identity = identity(&tokenizer);
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            &tokenizer,
+            7,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let optimizer = AdamW::new(model.parameters(), config.optimizer()).unwrap();
+        let snapshot = CheckpointSnapshot::new(
+            &identity,
+            config,
+            &model,
+            &optimizer,
+            CheckpointCounters::default(),
+        )
+        .unwrap();
+        let root = root();
+
+        CheckpointCodec::write_atomic(&root, &snapshot).unwrap();
+
+        let mode = fs::metadata(root.join("checkpoint.xyckpt"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn identity(tokenizer: &Tokenizer) -> RunIdentity {

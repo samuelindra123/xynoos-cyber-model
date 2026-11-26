@@ -4,7 +4,7 @@ use std::{
     env,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
@@ -889,6 +889,7 @@ fn publish_startup_failure(root: &Path, prepared: &Prepared, detail: &str) -> Cl
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&temp)
         .map_err(|error| format!("failure-report temporary file: {error}"))?;
     let result = (|| {
@@ -1526,6 +1527,9 @@ fn validate_root(root: &Path) -> CliResult<()> {
                 "artifact root and every parent must be a real directory, not a symlink".into(),
             );
         }
+        if current == root && metadata.permissions().mode() & 0o077 != 0 {
+            return Err("artifact root must be private (owner access only)".into());
+        }
     }
     Ok(())
 }
@@ -1661,6 +1665,7 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(&path).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
             Self(path)
         }
     }
@@ -1676,6 +1681,17 @@ mod tests {
             .unwrap()
             .map(|entry| entry.unwrap().path())
             .collect()
+    }
+
+    #[test]
+    fn artifact_root_must_not_be_group_or_world_accessible() {
+        let scratch = Scratch::new("private-root");
+        let root = scratch.0.join("permissive");
+        fs::create_dir(&root).unwrap();
+        assert!(validate_root(&root).is_err());
+
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(validate_root(&root).is_ok());
     }
 
     #[test]

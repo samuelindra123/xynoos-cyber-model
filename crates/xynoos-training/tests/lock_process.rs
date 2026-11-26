@@ -1,5 +1,6 @@
 use std::{
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
@@ -30,6 +31,7 @@ impl Scratch {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         Self(path)
     }
 }
@@ -132,6 +134,7 @@ fn repeated_multiprocess_recovery_has_one_owner_per_lineage() {
     let scratch = Scratch::new();
     let root = scratch.0.join("lineage");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     drop(RunJournal::open(&root, DIGEST, CheckpointCounters::default(), limits()).unwrap());
 
     for round in 0..20 {
@@ -179,6 +182,7 @@ fn crashed_owner_releases_kernel_lock_and_restart_recovers_journal() {
     let scratch = Scratch::new();
     let root = scratch.0.join("crashed-lineage");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     drop(RunJournal::open(&root, DIGEST, CheckpointCounters::default(), limits()).unwrap());
 
     let gate = scratch.0.join("crash-gate");
@@ -205,6 +209,7 @@ fn process_crash_immediately_after_os_lock_acquisition_is_recoverable() {
     let scratch = Scratch::new();
     let root = scratch.0.join("immediate-crash-lineage");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     drop(RunJournal::open(&root, DIGEST, CheckpointCounters::default(), limits()).unwrap());
 
     let gate = scratch.0.join("immediate-gate");

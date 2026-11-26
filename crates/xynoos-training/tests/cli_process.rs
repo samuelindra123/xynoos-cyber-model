@@ -1,5 +1,6 @@
 use std::{
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
@@ -34,6 +35,7 @@ impl Scratch {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         Self(path)
     }
 }
@@ -286,6 +288,7 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
     let (config, _) = setup(&scratch.0, "task006r-detached-one");
     let root = scratch.0.join("run-one");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let validated = json_stdout(&cli("validate", Some(&config), &root, &[]));
     assert_eq!(validated["status"], "valid");
     assert_eq!(validated["parameters"], 914400);
@@ -347,6 +350,7 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
     let (crash_config, _) = setup(&scratch.0, "task006r-abrupt-two");
     let crash_root = scratch.0.join("run-two");
     fs::create_dir(&crash_root).unwrap();
+    fs::set_permissions(&crash_root, fs::Permissions::from_mode(0o700)).unwrap();
     let launched = json_stdout(&cli("run", Some(&crash_config), &crash_root, &["--detach"]));
     let crash_pid = process_id(&launched);
     let crash_guard = ProcessGuard(crash_pid);
@@ -423,6 +427,7 @@ fn detached_process_survives_controller_exit_supports_stop_status_resume_and_cra
     // last committed checkpoint byte-for-byte.
     let failed_root = scratch.0.join("failed-recovery");
     fs::create_dir(&failed_root).unwrap();
+    fs::set_permissions(&failed_root, fs::Permissions::from_mode(0o700)).unwrap();
     for name in ["experiment.json", "checkpoint.xyckpt"] {
         fs::copy(crash_root.join(name), failed_root.join(name)).unwrap();
     }
@@ -449,6 +454,7 @@ fn concurrent_detached_launch_attempts_start_at_most_one_lineage_owner() {
     let (config, _) = setup(&scratch.0, "task006r-concurrent-launch");
     let root = scratch.0.join("concurrent-launch-root");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let _owner_cleanup = ArtifactProcessGuard(root.clone());
 
     let mut launchers = Vec::new();
@@ -495,6 +501,7 @@ fn validate_rejects_untrusted_source_configuration_and_over_budget_retained_meta
     let (config_path, _) = setup(&scratch.0, "task006r-admission");
     let root = scratch.0.join("validation-root");
     fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let pristine: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
 
     let mut changed = pristine.clone();

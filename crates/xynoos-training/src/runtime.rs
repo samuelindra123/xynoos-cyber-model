@@ -1,6 +1,8 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
+    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -59,7 +61,12 @@ impl StopToken {
     pub fn write_request(root: &Path) -> Result<()> {
         validate_root(root)?;
         let path = root.join("stop.request");
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+        {
             Ok(mut file) => {
                 file.write_all(b"stop\n")?;
                 file.sync_all()?;
@@ -251,6 +258,7 @@ impl RunHandoff {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&temp)?;
         let result = (|| {
             serde_json::to_writer(&mut file, &self.to_json())
@@ -300,6 +308,9 @@ pub(crate) fn validate_root(root: &Path) -> Result<()> {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err(TrainingError::InvalidConfiguration);
         }
+        if current == root && metadata.permissions().mode() & 0o077 != 0 {
+            return Err(TrainingError::InvalidConfiguration);
+        }
     }
     Ok(())
 }
@@ -321,6 +332,7 @@ mod tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
     }
 
