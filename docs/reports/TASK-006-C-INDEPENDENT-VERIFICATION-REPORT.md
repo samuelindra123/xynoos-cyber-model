@@ -21,7 +21,8 @@ The public `BatchSource` memory claim and missing-journal fallback are additiona
 - TASK 006-B implementation: `ae9e038af2b04a2fda4a4c624079a1ec82fd086c`.
 - Canonical checkout began clean at the exact implementation head with one physical working tree. Audit branch: `audit/task-006-c-native-training-verification`.
 - TASK 006-B PR #19 is open at the pinned head. Its hosted run `45662756847`, job `139376689147`, completed successfully.
-- Audit PR: [draft PR targeting `feat/task-006-b-native-training-engine`](https://github.com/samuelindra123/xynoos-cyber-model/pull/REPLACE_AFTER_CREATE). Audit exact head and hosted CI are recorded in the final Git handoff after push.
+- Audit branch: `audit/task-006-c-native-training-verification`.
+- Audit PR: [draft PR #20 targeting `feat/task-006-b-native-training-engine`](https://github.com/samuelindra123/xynoos-cyber-model/pull/20). The final exact head and hosted CI job are recorded in the PR checks and final handoff.
 
 Read `AGENTS.md`, `docs/COMPUTE_POLICY.md`, `docs/MODEL_VERSIONING.md`, `docs/design/EFFICIENCY-FIRST-MODEL-ENGINEERING.md`, TASK 006-A specification/numerical/checkpoint/data research, TASK 006-B handoff/report, and the checkpoint v1 format before reaching conclusions.
 
