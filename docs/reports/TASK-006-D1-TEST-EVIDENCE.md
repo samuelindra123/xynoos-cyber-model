@@ -1,7 +1,9 @@
 # TASK 006-D1 — Test Evidence
 
-**Implementation revision:** `da99cba3016b7fe564c42e65d8d2babe44b3b98f`  
-**Working tree:** clean during full debug and release workspace runs and the baseline run.
+| Evidence identity | Value |
+|---|---|
+| Implementation revision | `da99cba3016b7fe564c42e65d8d2babe44b3b98f` |
+| Working tree | Clean during full debug and release workspace runs and the baseline run. |
 
 ## Executed Rust checks
 
