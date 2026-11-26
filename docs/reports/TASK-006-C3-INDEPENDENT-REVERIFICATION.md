@@ -10,10 +10,10 @@ This audit was performed on a separate audit branch after freezing R2. It adds a
 |---|---|
 | Repository | `samuelindra123/xynoos-cyber-model` |
 | R2 implementation under review | `21d9990760380195b9d9379b6d43f848ad6c17df` (same runtime implementation as the frozen C3 base; corrected workflow accounting) |
-| C3 process/fault tests | `e1f8b2c`, `e447f51`, `3ab09a1`, `5ac90c5`, and `f7754a6` on `audit/task-006-c3-runtime-reverification-e633` |
+| C3 process/fault tests | `e1f8b2c`, `e447f51`, `3ab09a1`, `5ac90c5`, `f7754a6`, and `49ae778` on `audit/task-006-c3-runtime-reverification-e633` |
 | PR #21 | Open draft; no merge performed. |
 | Corrected exact R2 hosted run | Foundation CI `45772399582`, job `139747896665`, checked out exact SHA `21d9990760380195b9d9379b6d43f848ad6c17df`. All 29 steps succeeded, including corrected direct-test count, debug and release suites, all oracles and resource checks. The preceding run `45771271381` on `e6336e3` correctly exposed a stale expected count (164 versus 165 observed); `21d9990` corrected the assertion and CI passed. |
-| Exact C3 hosted run | Foundation CI `45821155162`, job `139913437157`, checked out exact SHA `f7754a624cc063d413eaba01cb9f491cc097d1aa`. All 29 steps succeeded, including debug/release direct-check totals of 170, the C3 five-test suite in both profiles, mathematical/data oracles, resource checks, and documentation. |
+| Exact C3 hosted run | Foundation CI `45822800686`, job `139919111849`, checked out exact SHA `49ae77837d4ac36d878ed7898aa9e8b708858b12`. All 29 steps succeeded, including debug/release direct-check totals of 170, the C3 five-test suite in both profiles, mathematical/data oracles, resource checks, and documentation. |
 | Source status | The C3 working tree was clean for the recorded test commands. |
 | Training/compute boundary | No workflow dispatch, TASK 006-D experiment, external dataset acquisition, paid compute, Colab runtime, or public artifact upload occurred. One bounded Objective A CLI execution is part of the sidecar restart software test and is not a research experiment. |
 
@@ -41,13 +41,22 @@ The independent C3 clone-based test accepts a clean clone at the compiled SHA an
 
 R2 stages the sidecar in a mode-0600 sibling file, syncs it, publishes it atomically without replacing an existing identity, syncs the directory, and removes the staging link. Startup removes orphan staging files and accepts only a complete matching sidecar with no journal or progress state.
 
-The separate C3 fault test applies `RLIMIT_FSIZE=0` to the CLI child. Linux terminates it on the first staging write, leaving a zero-byte temporary file and no canonical sidecar. A clean restart removes the orphan, publishes a valid sidecar, completes the bounded Objective A software test, and writes a final report. R2 unit tests inject failures across each stage/publication/cleanup boundary and verify pre-publication cleanup, post-publication completeness, and existing-artifact preservation.
+The separate C3 fault test applies `RLIMIT_FSIZE=0` to the CLI child while
+setting `GIT_OPTIONAL_LOCKS=0`. This keeps Git's provenance status check
+read-only, so the file-size fault reaches sidecar staging instead of leaving a
+zero-byte `.git/index.lock` during an optional index refresh. Linux then
+terminates the child on the first staging write, leaving a zero-byte
+temporary file and no canonical sidecar. A clean restart removes the orphan,
+publishes a valid sidecar, completes the bounded Objective A software test,
+and writes a final report. R2 unit tests inject failures across each
+stage/publication/cleanup boundary and verify pre-publication cleanup,
+post-publication completeness, and existing-artifact preservation.
 
 ## Scope limits
 
 - R2's 32 training-library tests, 4 CLI unit tests, 3 CLI process tests, 5 lock-process tests, and 1 compile-fail doctest passed locally in debug and release at `e6336e3…`.
-- The five C3 auditor-authored tests passed locally in debug and release at `f7754a6`; the release ownership test also passed ten repeated executions (120 synchronized contention rounds and 720 child launches). Checkpoint semantics/publication, journal monotonicity, logging failures, optimizer transactions, resume equivalence, and resource accounting are covered by existing package regressions and prior auditor-authored TASK 006-C controls.
-- The corrected R2 hosted run `45772399582` passed all steps on exact SHA `21d9990`. C3 hosted run `45821155162` passed all steps on exact SHA `f7754a6`, including the 170-check count for both profiles.
+- The five C3 auditor-authored tests passed locally in debug (18.05 s) and release (9.06 s) at `49ae778`; no source-repository index lock remained after the sidecar fault test. The release ownership test also passed ten repeated executions at `f7754a6` (120 synchronized contention rounds and 720 child launches). Checkpoint semantics/publication, journal monotonicity, logging failures, optimizer transactions, resume equivalence, and resource accounting are covered by existing package regressions and prior auditor-authored TASK 006-C controls.
+- The corrected R2 hosted run `45772399582` passed all steps on exact SHA `21d9990`. C3 hosted run `45822800686` passed all steps on exact SHA `49ae778`, including the 170-check count for both profiles.
 - Local detached-session tests do not establish survival after GitHub runner cancellation, SSH disconnect, Colab CLI disconnect, remote artifact transfer, or provider cleanup.
 - Advisory-lock crash recovery depends on local Linux kernel/filesystem behavior. Power loss beyond requested file/directory syncs, network filesystems, and hostile directory races are not claimed.
 - Advisory locks are verified only for local Linux/POSIX filesystem behavior, not remote filesystem semantics or hostile directory replacement.
