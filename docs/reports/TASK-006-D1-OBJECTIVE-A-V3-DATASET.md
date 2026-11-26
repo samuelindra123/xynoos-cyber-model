@@ -46,7 +46,7 @@ The native evaluator used one unchanged model initialized with seed 107. No opti
 
 All reports have finite loss and the same model-state digest. The public test was read for the explicitly tagged initial baseline. Training admission rejects test data, and the test metric is not used for learning-rate selection. The 91.38-second local debug test duration is a software-test observation, not a provider throughput estimate.
 
-The v3 unchanged-weight test did not train the model. A discarded development harness tried to send `[2, 16]` into the candidate training interface, which intentionally accepts `[1, 32]`; it was rejected before an optimizer update. No learning result is claimed. The accepted baseline test only exercises evaluation and data plumbing.
+The v3 unchanged-weight baseline did not train the model. Its `[2, 16]` evaluation batches differ from the trainer's `[1, 32]` input contract. A trainer-compatible stream now emits one padded `[1, 32]` batch per training document, preserving document boundaries and masking padding; the data regression confirms 24 batches, 197 supervised targets, zero dropped tails, and deterministic order. The focused native integration control then completed two bounded optimizer updates from the train split, evaluated validation only, confirmed finite loss and a parameter change, wrote two validation events and a checkpoint, and observed no test access. The focused debug test passed at source revision `74831336ae081ee65b3f18071208ed812bd73f66` in 17.27 seconds. This is software-path verification only: two updates do not show that the corpus or schedule can establish learning, generalization, or scientific sufficiency, and this was not a TASK 006-D training experiment.
 
 ## Limits and admission
 

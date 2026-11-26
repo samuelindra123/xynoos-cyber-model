@@ -98,12 +98,20 @@ validation/public-test losses of 5.747362546/5.692370273. The five evaluation
 passes totaled 3,124,414,056 measured forward-work units. They reused initial
 model-state digest
 `470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44`; test
-reads were explicitly tagged. No optimizer update was performed. The exact
-metrics, dataset identities, and limitations are recorded in the
-[v3 dataset report](TASK-006-D1-OBJECTIVE-A-V3-DATASET.md). An exploratory
-training harness was rejected by the existing candidate `[1, 32]` batch-shape
-contract before its first update and was removed; it contributes no training
-or learning evidence.
+reads were explicitly tagged. No optimizer update was performed for these
+baseline metrics. The exact metrics, dataset identities, and limitations are
+recorded in the [v3 dataset report](TASK-006-D1-OBJECTIVE-A-V3-DATASET.md).
+
+At clean source `74831336ae081ee65b3f18071208ed812bd73f66`, the new v3 data
+stream test passed with 24 independently padded `[1, 32]` training batches,
+197 supervised targets, zero dropped tails, and deterministic ordering. The
+focused `objective_a_v3_manifest_runs_two_bounded_trainer_updates` debug test
+also passed (one test, 17.27 seconds): it completed two updates using only the
+train split, recorded validation events, checked finite loss and a parameter
+change, wrote a checkpoint, and verified no test access. This is an isolated
+integration control, not a TASK 006-D experiment or evidence that two updates
+are scientifically sufficient. Full debug/release regression and exact-head
+hosted CI for the updated candidate remain pending.
 
 The latest local workspace runs at source `053b2703632921d9869215a2dad664d2f2b41733`
 passed 185 debug and 185 release checks. The 101-observation deterministic
