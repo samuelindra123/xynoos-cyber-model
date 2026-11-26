@@ -34,7 +34,7 @@ The native data integration test opens the manifest, fits and verifies the token
 ## Unchanged-weight baseline
 
 The native evaluator completed a manifest-backed baseline at the clean source
-revision `ffbc52f2957503676f51559f612d1e548adfdd8f`. It initialized the
+revision `68d3f48d345545bb51fc35f833b2a2505fbdc765`. It initialized the
 research candidate with seed 107 and reused the same unchanged weights for
 train, validation, and test. No optimizer was constructed and no update was
 performed.
@@ -58,7 +58,7 @@ All losses were finite, and every split report has the same model-state digest.
 The test split was evaluated once and marked accessed; it was not used for
 tokenizer fitting, training, or learning-rate selection. The full sequence
 cross entropy is not answer-only accuracy, so it does not establish transfer
-on the task labels. The release-profile baseline test completed in 11.68
+on the task labels. The release-profile baseline test completed in 11.60
 seconds after compilation. This evaluation is software verification, not a
 training run or evidence of cybersecurity capability.
 
