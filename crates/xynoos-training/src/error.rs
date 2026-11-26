@@ -8,7 +8,10 @@ pub enum TrainingError {
     InvalidIdentity,
     InvalidSchedule,
     ScheduleComplete,
-    ResourceLimit { requested: usize, limit: usize },
+    ResourceLimit {
+        requested: usize,
+        limit: usize,
+    },
     BudgetExhausted(&'static str),
     ArithmeticOverflow,
     AllocationFailed,
@@ -17,9 +20,15 @@ pub enum TrainingError {
     Transformer(xynoos_transformer::Error),
     Dataset(xynoos_data::DatasetError),
     Checkpoint(&'static str),
+    /// A required runtime telemetry event could not be written or flushed.
+    Logging(&'static str),
+    /// A required runtime-owned artifact could not be published.
+    RuntimeArtifact(&'static str),
     PublicationDurabilityUncertain,
     StopRequested,
-    RuntimeLimit { limit: Duration },
+    RuntimeLimit {
+        limit: Duration,
+    },
 }
 
 impl fmt::Display for TrainingError {

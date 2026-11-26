@@ -1,0 +1,60 @@
+# TASK 006-R — Native Training Runtime Remediation
+
+**Verdict: REMEDIATED — READY FOR INDEPENDENT RE-VERIFICATION**
+
+This report records focused changes after TASK 006-C’s conditional pass. It does not replace or edit the independent TASK 006-C report. It does not claim independent acceptance, dispatch TASK 006-D, merge a PR, or verify Colab/SSH persistence.
+
+## Pinned source and delivery
+
+| Item | Evidence |
+|---|---|
+| Repository | `samuelindra123/xynoos-cyber-model` |
+| Canonical checkout | One physical checkout at the repository’s canonical working directory |
+| TASK 006-C parent | `231d47d2d95f52770fa20f4da93a91be762178d0` |
+| Remediation branch | `feat/task-006-r-runtime-remediation` |
+| Draft remediation PR | To `audit/task-006-c-native-training-verification`; exact link and head recorded after push |
+| Final head / Foundation CI job | Recorded after exact-head hosted CI completes |
+
+## Remediated acceptance findings
+
+| TASK 006-C finding | Root cause | Production change | Executed evidence | Result and remaining limit |
+|---|---|---|---|---|
+| F-01 — no standalone executable or dispatch path | The crate exposed only a library trainer and tests. | Added `xynoos-train` with strict `validate`, `run`, `resume`, `status`, `stop`, and `inspect-checkpoint` commands; added manual-only bounded `.github/workflows/train-cpu.yml`. | `tests/cli_process.rs` launches the real executable under `setsid`; Foundation CI validates the workflow on the exact remediation head. | Local Linux process path is exercised. The manual workflow was not dispatched; it does not upload checkpoints. Colab/SSH/provider persistence is not claimed. |
+| F-02 — ignored microbatch log result and no Trainer writer fault injection | `Trainer::run_updates` ignored the event result, and the writer was fixed to a file. | Added a boxed `Write` boundary, typed `Logging(stage)` errors, and deterministic stop/report behavior for write, flush, post-commit metric, checkpoint-event, validation, and final-report failures. | Trainer-boundary fault tests cover microbatch write, microbatch flush, post-commit optimizer metric, and final-report publication. | Pre-commit failure discards the pending window and preserves the prior committed state. Post-commit failure checkpoints/reports the committed update and returns nonzero. If the filesystem rejects every write, only stderr/nonzero exit is guaranteed. |
+| F-03 — missing journal could be reconstructed from checkpoint counters | Resume used create-if-missing journal admission and checkpoint counters cannot recover later precharges. | Added `RunJournal::open_existing`; resume and status fail closed on missing/corrupt/incompatible journal. Progress must be monotonic relative to checkpoint counters and within all cumulative limits. Restart charges outstanding runtime reservations. | Journal unit cases cover missing, checksum-valid invalid counters, old checkpoint with newer journal, and simultaneous opens. Process test kills a detached run, verifies the reservation remains, and verifies a corrupted-journal recovery emits a failure report without changing checkpoint bytes. | Trusted local artifact directory remains an assumption. The unkeyed SHA-256 is not an authentication mechanism; deliberate replacement with recomputed checksums is not prevented. |
+| L-01 — public `BatchSource` memory claims can be false | The trait’s `reserved_memory_bytes()` is caller supplied. | Official CLI accepts only `manifest-v1-stream`, validates dataset and train-bound tokenizer identities, and constructs concrete `BatchStream`s. It divides retained data/reader reservations across simultaneously live train and validation streams and rejects excess before model allocation. | Process integration tests reject unsupported source kind, wrong dataset/tokenizer identity, and over-budget retained metadata; valid streaming is exercised by the real CLI. | Custom in-process source implementations remain trusted research extensions. The library does not sandbox arbitrary Rust code. |
+| L-02 — local POSIX publication and path TOCTOU limitations | Path validation and same-directory rename cannot exclude hostile races or promise remote filesystem semantics. | Kept existing path checks and checkpoint v1 publication contract; CLI adds checked regular-file admission for runtime PID/stderr artifacts. | Existing pre/post-rename fault tests and new checkpoint mutations pass; symlink and traversal rejection remains covered. | TOCTOU, remote filesystems, power loss beyond requested sync, and adversarial artifact-directory modification remain unsupported. |
+| L-03 — checkpoint semantic mutation breadth | TASK 006-C independently resealed only a negative-moment semantic mutation. | Added a checksum-valid malformed-state matrix without changing checkpoint v1. | New matrix reseals and rejects non-finite values, invalid bias-power progression, schedule/optimizer mismatch, identity/shape mismatch, cursor mismatch, reordered fields, partial accumulation and trailing data. | The complete format contract still includes cases enforced by parser checks without a dedicated independent vector for every field combination. |
+| L-04 — stop/runtime checks are safe-point based | Synchronous model and filesystem operations are not preemptible by the library token. | Exposed safe-boundary stop through `stop.request`; `--detach` uses a separate Linux session, bounded PID handshake and process cleanup. | Process smoke confirms stop, process-session separation, controller exit survival, bounded runtime, PID disappearance and recovery after `SIGKILL`. | No hard real-time guarantee; kernel or blocked I/O can overshoot. This does not test a remote SSH or Colab disconnect. |
+
+## Executable and identity contract
+
+The fixed model remains `xynoos-cyber-0.1`, 914,400 parameters, 74 tensors, eight blocks, hidden size 96, four heads, FFN 256, vocabulary 292, context 128, and `[1,32]` training batches. Configuration has no model override. Every config key and nested object is required and unknown fields are rejected. All run/resource limits are explicit and bounded. The config and command schema are documented in [TASK-006-R-NATIVE-RUNTIME.md](../design/TASK-006-R-NATIVE-RUNTIME.md).
+
+`validate` performs source, tokenizer, split-order, path, memory-plan, and identity checks without constructing a Transformer. It binds the dataset manifest and the tokenizer fit record to the training split and verifies validation stream identity. The GitHub workflow additionally requires `source_revision == github.sha` and a clean exact checkout. Outside that controlled workflow, the caller-provided source SHA is a declared identity; the binary does not attest its own build provenance.
+
+`run` requires an empty artifact root and publishes a synced immutable experiment sidecar. `resume` requires that sidecar, a valid checkpoint and the existing lineage journal. It cannot silently create a new lineage. `status` only reads the sidecar, journal, lock and bounded reports. `stop` creates a latched safe-boundary request. `inspect-checkpoint` performs bounded v1 integrity and semantic decoding without mutating the run or constructing a Transformer.
+
+## Logging and failure semantics
+
+Every Trainer logging call now propagates a typed stage failure. A failed microbatch record is handled before optimizer commit: the pending gradient window is discarded, source cursor is restored to the last committed boundary, and admitted work remains charged. A failed optimizer-update metric occurs after commit: the final checkpoint/report retains the committed update and the executable exits nonzero. Checkpoint publication uncertainty is still reported using the existing `PublicationDurabilityUncertain` contract; a later safe checkpoint attempt does not claim the previous file survived replacement. Final-report writes are attempted twice, but complete filesystem failure may prevent persistence.
+
+Trainer initialization/recovery failures use a separate atomic `failure-report.json`; this preserves a previous successful final report and never replaces the committed checkpoint. The detached process sends standard output to `/dev/null`, captures stderr in `process.stderr`, and writes a short-lived `process.pid` handshake. Runtime JSONL remains the authoritative step telemetry.
+
+## Cumulative lineage and resource accounting
+
+The journal still precharges tokens, work and attempt runtime before admission. New conservative work charges reserve up to the 16 MiB checkpoint maximum for each periodic/final write and precharge two streaming passes over the checkpoint on resume. These charges do not raise any hard limit. The TASK 006-D single-batch 24-update estimate, including four validation events and five checkpoint reservations, is 7,382,315,232 work units, below its proposed 8B per-run cap. Resume equivalence is separately budgeted; see the revised proposal.
+
+The resource contract remains ordinary work 100,000,000, exact-candidate backward 160,000,000, 64 MiB per tensor, 128 MiB autograd aggregate, 128 MiB maximum training-run owned memory, 16 MiB checkpoint, existing value/operation ceilings, and at most 10,000 optimizer updates. The pilot config remains below those maxima. CLI preflight rejects source retained capacity before allocating the full model. Application owned-memory charge, autograd ledger charge, and process `VmHWM` are separate values; none is a hard RSS limit.
+
+Fresh bounded optimized samples reproduced the frozen Objective A fixture: held-out mean CE `5.695174217 → 5.554496050` after two updates over 64 supervised training tokens. Parameters and both moment inventories still change. The isolated current sample measured 407.109 ms mean full optimizer update (two observations; sample SD 23.681 ms, range 390.364–423.854 ms), 40.131 supervised tokens/s end-to-end, 42,439,416-byte charged owned peak, 30,682,296-byte autograd ledger peak, and 35,291,136-byte process `VmHWM`. The process smoke child measured 42,439,416-byte owned peak, 30,682,296-byte autograd peak, and 34,705,408-byte `VmHWM`. Isolated resume measured `VmHWM` 57,212,928 bytes and 82.668 ms trainer resume load. Two update samples are not sustained-throughput evidence.
+
+## Regression preservation
+
+TASK 006-C’s 138 active checks remain; twelve remediation checks bring debug and release totals to 150 across 25 suites. Five bounded hosted-only checks remain present and explicitly invoked by Foundation CI. Frozen fixture hashes remain unchanged: AdamW 33-record SHA-256 `f1839d7c12a0c9b3b0e75b73ec3b7e53b1eb1c67191c64e6053eb9a199244e61`; Objective A SHA-256 `63050baf97f301c5ca6a3ad07a1a632bef77938b69f0317622738b5bbc00fa33`. Debug and release each produced one 101-observation trajectory record with 102 fields and identical bytes. TASK 001–005 contracts, the original 31 AdamW expectations, all 33 oracle records, and existing numerical tolerances remain unchanged.
+
+## Remaining decision gates
+
+The native process runtime and local Linux detached mode are ready for independent re-verification. The actual CPU workflow is manual-only and was not dispatched. No TASK 006-D run or external compute was used. The 006-D proposal now marks multi-batch validation, a baseline/test evaluation path, and owner-approved private checkpoint persistence as pre-dispatch requirements: the existing single 32-token validation batch is not adequate for a rate-selection claim, and the executable does not access the test split. No cybersecurity capability or broad text generalization is claimed.
+
+The exact final commit, PR, and Foundation CI job are added to this report after push and hosted verification.

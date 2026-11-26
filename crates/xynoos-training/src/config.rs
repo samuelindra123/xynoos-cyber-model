@@ -141,6 +141,40 @@ pub struct RunIdentity {
 }
 
 impl RunIdentity {
+    /// Bind an official run identity to a validated manifest-backed dataset,
+    /// tokenizer artifact, and the exact deterministic train/validation
+    /// stream orders admitted by the native runtime.
+    pub fn from_standard_dataset(
+        source_revision: String,
+        source_clean: bool,
+        dataset: &Dataset,
+        tokenizer: &Tokenizer,
+        data_order_identity: [u8; 32],
+        validation_order_identity: [u8; 32],
+    ) -> Result<Self> {
+        let artifact = TokenizerArtifact::serialize(tokenizer, TokenizerLimits::MAX)
+            .map_err(|_| TrainingError::InvalidIdentity)?;
+        let identity = Self::new(
+            source_revision,
+            source_clean,
+            dataset.manifest().dataset_id.clone(),
+            dataset.manifest_sha256(),
+            split_identity(dataset, Split::Train),
+            split_identity(dataset, Split::Validation),
+            split_identity(dataset, Split::Test),
+            provenance_identity(dataset),
+            tokenizer.algorithm().to_owned(),
+            Sha256::digest(artifact).into(),
+            u32::try_from(tokenizer.vocabulary_size())
+                .map_err(|_| TrainingError::InvalidIdentity)?,
+            data_order_identity,
+            validation_order_identity,
+        );
+        identity.validate(tokenizer)?;
+        identity.validate_dataset(dataset)?;
+        Ok(identity)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         source_revision: String,

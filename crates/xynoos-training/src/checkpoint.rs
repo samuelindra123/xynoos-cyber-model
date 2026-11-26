@@ -1940,6 +1940,72 @@ mod tests {
         .unwrap()
     }
 
+    fn independent_field(
+        bytes: &[u8],
+        section_tag: &[u8; 4],
+        wanted: u16,
+    ) -> (usize, usize, usize) {
+        let mut section = HEADER_BYTES;
+        while section < bytes.len() {
+            let tag: [u8; 4] = bytes[section..section + 4].try_into().unwrap();
+            let length =
+                u64::from_le_bytes(bytes[section + 8..section + 16].try_into().unwrap()) as usize;
+            if &tag == section_tag {
+                let mut field = section + 16;
+                let end = field + length;
+                while field < end {
+                    let id = u16::from_le_bytes(bytes[field..field + 2].try_into().unwrap());
+                    let field_len =
+                        u64::from_le_bytes(bytes[field + 2..field + 10].try_into().unwrap())
+                            as usize;
+                    if id == wanted {
+                        return (field, field + 10, field_len);
+                    }
+                    field += 10 + field_len;
+                }
+                panic!("field {wanted} not present in {section_tag:?}");
+            }
+            section += 16 + length;
+        }
+        panic!("section {section_tag:?} not present");
+    }
+
+    fn reseal(bytes: &mut [u8]) {
+        let mut section = HEADER_BYTES;
+        while section < bytes.len() {
+            let tag = &bytes[section..section + 4];
+            let length =
+                u64::from_le_bytes(bytes[section + 8..section + 16].try_into().unwrap()) as usize;
+            if tag == b"HASH" {
+                let digest: [u8; 32] = Sha256::digest(&bytes[..section]).into();
+                bytes[section + 26..section + 58].copy_from_slice(&digest);
+                return;
+            }
+            section += 16 + length;
+        }
+        panic!("integrity section missing");
+    }
+
+    fn rejected_semantic_mutation(
+        path: &Path,
+        canonical: &[u8],
+        identity: &RunIdentity,
+        config: TrainingConfig,
+        tokenizer: &Tokenizer,
+        mut mutate: impl FnMut(&mut Vec<u8>),
+        expected: &'static str,
+    ) {
+        let mut bytes = canonical.to_vec();
+        mutate(&mut bytes);
+        reseal(&mut bytes);
+        fs::write(path, &bytes).unwrap();
+        assert_eq!(
+            CheckpointCodec::load(path.parent().unwrap(), identity, config, tokenizer),
+            Err(TrainingError::Checkpoint(expected)),
+            "semantic mutation {expected} must be rejected after integrity succeeds"
+        );
+    }
+
     #[test]
     fn streams_round_trip_and_reject_corruption_without_mutating_a_model() {
         let tokenizer = tokenizer();
@@ -2156,6 +2222,216 @@ mod tests {
         );
         assert_eq!(model.parameters().revision(), 74);
         assert_eq!(optimizer.step_count(), 0);
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn checksum_valid_semantic_matrix_rejects_state_identity_order_and_cursor_mutations() {
+        let tokenizer = tokenizer();
+        let identity = identity(&tokenizer);
+        let config = config();
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            &tokenizer,
+            config.seed(),
+            config.autograd_limits(),
+        )
+        .unwrap();
+        let optimizer = AdamW::new(model.parameters(), config.optimizer()).unwrap();
+        let path = root();
+        CheckpointCodec::write_atomic(&path, &snapshot(&identity, config, &model, &optimizer, 0))
+            .unwrap();
+        let checkpoint = path.join("checkpoint.xyckpt");
+        let canonical = fs::read(&checkpoint).unwrap();
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"MODL", 2);
+                let first_parameter = value + 4 + 8;
+                bytes[first_parameter..first_parameter + 4]
+                    .copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
+            },
+            "non_finite_or_negative_moment",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"ADAM", 10);
+                let first_elements =
+                    u32::from_le_bytes(bytes[value + 8..value + 12].try_into().unwrap()) as usize;
+                let first_moment = value + 12;
+                let first_second_moment = first_moment + first_elements * 4;
+                bytes[first_second_moment..first_second_moment + 4]
+                    .copy_from_slice(&f32::INFINITY.to_bits().to_le_bytes());
+            },
+            "non_finite_or_negative_moment",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"ADAM", 7);
+                bytes[value..value + 8].copy_from_slice(&0.5_f64.to_bits().to_le_bytes());
+            },
+            "bias_power_mismatch",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"SCHD", 7);
+                bytes[value..value + 8].copy_from_slice(&1_u64.to_le_bytes());
+            },
+            "counter_or_resume_state",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"CNTR", 8);
+                bytes[value..value + 8].copy_from_slice(&1_u64.to_le_bytes());
+            },
+            "counter_or_resume_state",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"IDEN", 1);
+                bytes[value..value + 16].copy_from_slice(b"xynoos-model-bad");
+            },
+            "model_id_mismatch",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"IDEN", 12);
+                bytes[value] ^= 0x40;
+            },
+            "configuration_or_inventory_digest",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"IDEN", 5);
+                bytes[value] ^= 1;
+            },
+            "configuration_or_inventory_digest",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"ARCH", 6);
+                let name_bytes =
+                    u16::from_le_bytes(bytes[value + 8..value + 10].try_into().unwrap()) as usize;
+                let first_dimension = value + 4 + 4 + 2 + name_bytes + 1;
+                let dimension = u32::from_le_bytes(
+                    bytes[first_dimension..first_dimension + 4]
+                        .try_into()
+                        .unwrap(),
+                );
+                bytes[first_dimension..first_dimension + 4]
+                    .copy_from_slice(&(dimension + 1).to_le_bytes());
+            },
+            "inventory_mismatch",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"DATA", 5);
+                bytes[value..value + 8].copy_from_slice(&1_u64.to_le_bytes());
+            },
+            "counter_or_resume_state",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (first_header, _, first_len) = independent_field(bytes, b"IDEN", 1);
+                let second_header = first_header + 10 + first_len;
+                bytes[first_header..first_header + 2].copy_from_slice(&2_u16.to_le_bytes());
+                bytes[second_header..second_header + 2].copy_from_slice(&1_u16.to_le_bytes());
+            },
+            "invalid_field_id_or_length",
+        );
+
+        rejected_semantic_mutation(
+            &checkpoint,
+            &canonical,
+            &identity,
+            config,
+            &tokenizer,
+            |bytes| {
+                let (_, value, _) = independent_field(bytes, b"ACUM", 2);
+                bytes[value..value + 8].copy_from_slice(&1_u64.to_le_bytes());
+            },
+            "partial_accumulation",
+        );
+
+        let mut trailing = canonical.clone();
+        trailing.push(0);
+        let trailing_length = trailing.len() as u64;
+        trailing[24..32].copy_from_slice(&trailing_length.to_le_bytes());
+        reseal(&mut trailing);
+        fs::write(&checkpoint, trailing).unwrap();
+        assert_eq!(
+            CheckpointCodec::load(&path, &identity, config, &tokenizer),
+            Err(TrainingError::Checkpoint("trailing_or_missing_bytes"))
+        );
+        assert_eq!(model.parameters().revision(), 74);
+        assert_eq!(optimizer.step_count(), 0);
+        fs::write(&checkpoint, &canonical).unwrap();
+        assert_eq!(fs::read(&checkpoint).unwrap(), canonical);
         fs::remove_dir_all(path).unwrap();
     }
 }

@@ -1,0 +1,270 @@
+name: Manually dispatched bounded native CPU training
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Repository-relative immutable xynoos-train JSON configuration
+        required: true
+        type: string
+      authorize_training_run:
+        description: Explicitly authorize the finite run described by this configuration
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-cpu-training-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  train:
+    name: Validate or run bounded native CPU experiment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the dispatched source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Validate immutable configuration and strict experiment caps
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+          EXPECTED_SHA: ${{ github.sha }}
+          WORKSPACE: ${{ github.workspace }}
+          RUN_AUTHORIZED: ${{ inputs.authorize_training_run }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          workspace = Path(os.environ["WORKSPACE"]).resolve(strict=True)
+          raw_config_path = os.environ["CONFIG_PATH"]
+          if any(ord(char) < 32 or ord(char) == 127 for char in raw_config_path):
+              raise SystemExit("config_path may not contain control characters")
+          relative = Path(raw_config_path)
+          if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+              raise SystemExit("config_path must be repository-relative without parent traversal")
+          current = workspace
+          for part in relative.parts:
+              if part in ("", "."):
+                  continue
+              current = current / part
+              if current.is_symlink():
+                  raise SystemExit("configuration path may not include symlinks")
+          config_path = current.resolve(strict=True)
+          if workspace not in config_path.parents or not config_path.is_file() or config_path.stat().st_size > 16384:
+              raise SystemExit("configuration must be a regular repository file no larger than 16 KiB")
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          if config.get("source_revision") != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("configuration source_revision does not match the dispatched commit")
+          if subprocess.run(["git", "status", "--porcelain"], check=True, capture_output=True, text=True).stdout:
+              raise SystemExit("dispatched checkout is not clean")
+          if config.get("source_kind") != "manifest-v1-stream":
+              raise SystemExit("unsupported standard source kind")
+
+          base = config_path.parent
+          for key in ("dataset_root", "tokenizer_artifact", "tokenizer_fit_record"):
+              value = Path(config[key])
+              if value.is_absolute() or ".." in value.parts:
+                  raise SystemExit(f"{key} must stay inside the configuration directory tree")
+              resolved = (base / value).resolve(strict=True)
+              if base not in resolved.parents:
+                  raise SystemExit(f"{key} escapes the configuration directory")
+
+          limits = config["limits"]
+          schedule = config["schedule"]
+          memory = config["memory"]
+          autograd = config["autograd"]
+          caps = {
+              "microbatches_per_update": (limits["microbatches_per_update"], 1),
+              "max_updates": (limits["max_updates"], 24),
+              "schedule.total_updates": (schedule["total_updates"], 24),
+              "consumed_tokens": (limits["consumed_tokens"], 768),
+              "supervised_tokens": (limits["supervised_tokens"], 768),
+              "cumulative_work": (limits["cumulative_work"], 8_000_000_000),
+              "owned_memory_bytes": (limits["owned_memory_bytes"], 64 * 1024 * 1024),
+              "data_allowance_bytes": (memory["data_allowance_bytes"], 4 * 1024 * 1024),
+              "autograd.bytes": (autograd["bytes"], 64 * 1024 * 1024),
+              "max_runtime_seconds": (limits["max_runtime_seconds"], 120),
+              "max_attempt_runtime_seconds": (limits["max_attempt_runtime_seconds"], 90),
+              "checkpoint_every_updates": (limits["checkpoint_every_updates"], 6),
+              "validation_every_updates": (limits["validation_every_updates"], 6),
+          }
+          for name, (value, maximum) in caps.items():
+              if not isinstance(value, int) or isinstance(value, bool) or value <= 0 or value > maximum:
+                  raise SystemExit(f"{name} must be positive and no greater than {maximum}")
+          if limits["max_updates"] != schedule["total_updates"]:
+              raise SystemExit("max_updates must equal schedule.total_updates")
+          if limits["checkpoint_every_updates"] != 6 or limits["validation_every_updates"] != 6:
+              raise SystemExit("checkpoint and validation cadence must be exactly six updates")
+          if limits["supervised_tokens"] > limits["consumed_tokens"]:
+              raise SystemExit("supervised_tokens may not exceed consumed_tokens")
+          if os.environ["RUN_AUTHORIZED"] not in ("true", "false"):
+              raise SystemExit("invalid authorization input")
+          Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8").write(f"CONFIG_ABS={config_path}\n")
+          print(f"Validated config for {config['experiment_id']} at {config['source_revision']}")
+          print(f"Training dispatch authorized: {os.environ['RUN_AUTHORIZED']}")
+          PY
+
+      - name: Install and verify pinned Rust toolchain
+        run: |
+          rustup install --no-self-update
+          expected_version=$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          test "$(rustc --version | cut -d ' ' -f 2)" = "$expected_version"
+          cargo fetch --locked
+
+      - name: Build native executable
+        run: cargo build -p xynoos-training --bin xynoos-train --release --locked --offline
+
+      - name: Validate without constructing the model
+        id: validate
+        env:
+          TRAIN_BIN: ${{ github.workspace }}/target/release/xynoos-train
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          artifact_root="$RUNNER_TEMP/xynoos-cpu-$RUN_ID"
+          validation_path="$RUNNER_TEMP/xynoos-validation-$RUN_ID.json"
+          mkdir -m 700 "$artifact_root"
+          echo "ARTIFACT_ROOT=$artifact_root" >> "$GITHUB_ENV"
+          echo "VALIDATION_PATH=$validation_path" >> "$GITHUB_ENV"
+          "$TRAIN_BIN" validate --config "$CONFIG_ABS" --artifact-root "$artifact_root" > "$validation_path"
+
+      - name: Execute the explicitly authorized finite run
+        id: execute
+        if: ${{ success() && inputs.authorize_training_run }}
+        env:
+          TRAIN_BIN: ${{ github.workspace }}/target/release/xynoos-train
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 240s "$TRAIN_BIN" run --config "$CONFIG_ABS" --artifact-root "$ARTIFACT_ROOT"
+
+      - name: Verify runtime artifacts and produce integrity manifest
+        if: ${{ always() && inputs.authorize_training_run && steps.validate.outcome == 'success' }}
+        env:
+          TRAIN_BIN: ${{ github.workspace }}/target/release/xynoos-train
+          EXECUTION_OUTCOME: ${{ steps.execute.outcome }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ["ARTIFACT_ROOT"])
+          checkpoint = root / "checkpoint.xyckpt"
+          report = root / "final-report.json"
+          failure_report = root / "failure-report.json"
+          handoff = root / "handoff.json"
+          metrics = root / "metrics.jsonl"
+          process_error = root / "process.stderr"
+          required_missing = []
+          for path, limit in ((checkpoint, 16 * 1024 * 1024), (report, 64 * 1024), (failure_report, 64 * 1024), (handoff, 64 * 1024), (metrics, 2 * 1024 * 1024), (process_error, 64 * 1024)):
+              if path.exists() and (not path.is_file() or path.is_symlink() or path.stat().st_size > limit):
+                  raise SystemExit(f"invalid or oversized runtime artifact: {path.name}")
+          for path in (checkpoint, report, metrics):
+              if not path.exists():
+                  required_missing.append(path.name)
+          inspection = root / "checkpoint-inspection.json"
+          sidecar_path = root / "experiment.json"
+          experiment_id = json.loads(sidecar_path.read_text(encoding="utf-8"))["experiment_id"] if sidecar_path.exists() else None
+          if checkpoint.exists():
+              result = subprocess.run(
+                  [os.environ["TRAIN_BIN"], "inspect-checkpoint", "--config", os.environ["CONFIG_ABS"], "--artifact-root", str(root)],
+                  check=False, capture_output=True, text=True, timeout=30,
+              )
+              if result.returncode == 0:
+                  parsed = json.loads(result.stdout)
+                  if parsed.get("experiment_id") != experiment_id:
+                      raise SystemExit("checkpoint identity does not match the immutable experiment")
+                  inspection.write_text(json.dumps(parsed, sort_keys=True) + "\n", encoding="utf-8")
+              else:
+                  required_missing.append("valid-checkpoint-inspection")
+          if metrics.exists():
+              for line in metrics.read_text(encoding="utf-8").splitlines():
+                  event = json.loads(line)
+                  if event.get("schema_version") != 1 or event.get("experiment_id") != experiment_id:
+                      raise SystemExit("invalid structured metrics event")
+              if metrics.stat().st_size == 0:
+                  required_missing.append("nonempty-metrics.jsonl")
+          if report.exists():
+              final = json.loads(report.read_text(encoding="utf-8"))
+              if final.get("model_id") != "xynoos-cyber-0.1" or final.get("experiment_id") != experiment_id or not final.get("counters"):
+                  raise SystemExit("invalid final report")
+          if failure_report.exists():
+              failed = json.loads(failure_report.read_text(encoding="utf-8"))
+              if failed.get("status") != "failed" or failed.get("experiment_id") != experiment_id:
+                  raise SystemExit("invalid startup failure report")
+          if handoff.exists():
+              identity = json.loads(handoff.read_text(encoding="utf-8"))
+              if identity.get("experiment_id") != experiment_id:
+                  raise SystemExit("handoff identity mismatch")
+          integrity = {
+              "schema_version": 1,
+              "workflow_run_id": os.environ["RUN_ID"],
+              "experiment_id": experiment_id,
+              "execution_outcome": os.environ.get("EXECUTION_OUTCOME", "unknown"),
+              "checkpoint_bytes": checkpoint.stat().st_size if checkpoint.exists() else None,
+              "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest() if checkpoint.exists() else None,
+              "metrics_bytes": metrics.stat().st_size if metrics.exists() else None,
+              "metrics_sha256": hashlib.sha256(metrics.read_bytes()).hexdigest() if metrics.exists() else None,
+              "final_report_bytes": report.stat().st_size if report.exists() else None,
+              "final_report_sha256": hashlib.sha256(report.read_bytes()).hexdigest() if report.exists() else None,
+              "failure_report_sha256": hashlib.sha256(failure_report.read_bytes()).hexdigest() if failure_report.exists() else None,
+              "handoff_sha256": hashlib.sha256(handoff.read_bytes()).hexdigest() if handoff.exists() else None,
+              "missing_required_success_artifacts": required_missing,
+              "model_weights_retained_as_upload": False,
+          }
+          (root / "artifact-integrity.json").write_text(json.dumps(integrity, sort_keys=True) + "\n", encoding="utf-8")
+          upload = [path for path in (report, failure_report, metrics, handoff, inspection, root / "artifact-integrity.json", process_error) if path.exists()]
+          if sum(path.stat().st_size for path in upload) > 2 * 1024 * 1024:
+              raise SystemExit("uploadable logs and reports exceed the 2 MiB artifact cap")
+          if os.environ.get("EXECUTION_OUTCOME") == "success" and required_missing:
+              raise SystemExit("successful run is missing required validated artifacts: " + ", ".join(required_missing))
+          PY
+
+      - name: Upload bounded logs and reports without model weights
+        if: ${{ always() && inputs.authorize_training_run }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: xynoos-native-cpu-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/final-report.json
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/failure-report.json
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/metrics.jsonl
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/handoff.json
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/checkpoint-inspection.json
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/artifact-integrity.json
+            ${{ runner.temp }}/xynoos-cpu-${{ github.run_id }}/process.stderr
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 6
+
+      - name: Upload validation-only result
+        if: ${{ success() && !inputs.authorize_training_run }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: xynoos-native-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/xynoos-validation-${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove ephemeral run state from the runner
+        if: always()
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: rm -rf -- "$RUNNER_TEMP/xynoos-cpu-$RUN_ID" "$RUNNER_TEMP/xynoos-validation-$RUN_ID.json"
