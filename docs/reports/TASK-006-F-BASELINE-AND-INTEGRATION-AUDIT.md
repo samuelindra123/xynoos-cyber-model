@@ -6,7 +6,7 @@
 
 | Check | Finding |
 |---|---|
-| Canonical checkout | `/home/samuel/Documents/xynoos-cyber-model`; one worktree only. No additional permanent clone/worktree was created. |
+| Canonical checkout | The repository's one canonical worktree; no additional permanent clone/worktree was created. |
 | Starting branch and cleanliness | `feat/task-006-e-first-training-readiness` at `a5844e5606d2bdeaf9d4762110e63d93e71323eb`; clean before branch creation. |
 | `main` | `32eca2b900c4f7a88294f7a24a5dfae0604ae798`; matches `origin/main`. |
 | Integration branch | `feat/task-006-f-integration-assurance`; local merge commits integrate C3 `b7656abbc38703b3a34652cc5c7f9435a2b0c32c` and v3 `f122f4e283b06d2cd20dd544fc0b18af4c8b6c98`. |
@@ -57,6 +57,16 @@ CI success is evidence for the tested PR head only. These PRs were unmerged and 
 - **Root cause:** File-existence polling can observe a result file while the writer is still publishing its short content.
 - **Remediation:** F changes both wait predicates to await the complete `contended` contents before assertions; no runtime algorithm changed.
 - **Verification:** Focused repeats passed; complete `xynoos-training` debug/release suites passed on `00905b2abc11d46002da57f2607a3ec18a73f956`. Exact-head hosted validation is still required before this candidate is considered green.
+
+### F-BASE-04 — privacy policy check found a personal checkout path
+
+- **Severity:** Medium; repository hygiene/CI blocker.
+- **Component:** F baseline report and tracked documentation privacy scan.
+- **Reproduction:** Run `python3 tools/check_repository.py` on a clean or dirty checkout with the report tracked; on PR #29 exact head `4a8b4cb8b26a441626063d709760dedf6905c94c`, Foundation CI run `46158451354` reported `Tracked file 307: personal absolute path on line 9`.
+- **Evidence:** Hosted `Validate tracked privacy and artifact policy` failed before Rust toolchain installation; all preceding required-file and Markdown/YAML checks passed.
+- **Root cause:** The baseline table included the canonical checkout's local absolute path, contrary to the compute policy.
+- **Remediation:** Replace it with the repository-neutral description “the repository's one canonical worktree”; keep all personal paths and machine details out of tracked docs.
+- **Verification:** Local privacy scan after the edit is required; new exact-head hosted CI must pass the privacy gate.
 
 ### F-BASE-02 — no accepted training revision
 
