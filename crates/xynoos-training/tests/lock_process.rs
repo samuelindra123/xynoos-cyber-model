@@ -155,7 +155,16 @@ fn repeated_multiprocess_recovery_has_one_owner_per_lineage() {
         }
         fs::write(&gate, b"go\n").unwrap();
         wait_until(|| {
-            outputs.iter().filter(|(_, result)| result.exists()).count() == 3
+            // `fs::write` creates the result path before all bytes have been
+            // written. Wait for complete records so this assertion tests
+            // lock admission rather than racing the worker's file write.
+            outputs
+                .iter()
+                .filter(|(_, result)| {
+                    fs::read_to_string(result).is_ok_and(|value| value == "contended")
+                })
+                .count()
+                == 3
                 && outputs.iter().any(|(ready, _)| ready.exists())
         });
         assert_eq!(

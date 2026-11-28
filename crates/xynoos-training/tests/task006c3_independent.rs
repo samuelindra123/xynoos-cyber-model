@@ -147,7 +147,9 @@ fn independent_process_races_never_obtain_two_journal_owners() {
         wait_until(|| {
             evidence
                 .iter()
-                .filter(|(_, result)| result.exists())
+                .filter(|(_, result)| {
+                    fs::read_to_string(result).is_ok_and(|value| value == "contended")
+                })
                 .count()
                 == 5
                 && evidence.iter().any(|(ready, _)| ready.exists())
