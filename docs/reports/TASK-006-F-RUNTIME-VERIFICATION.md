@@ -1,6 +1,6 @@
 # TASK 006-F — Runtime Independent Verification
 
-**Outcome: local Linux runtime controls passed; separate reviewer acceptance and remote-provider lifecycle remain open.** Runtime claims below apply to the tested Linux/POSIX local filesystem behavior, not arbitrary network filesystems or power-loss semantics beyond the documented sync protocol.
+**Outcome: local Linux runtime controls and integrated exact-head hosted CI passed; separate reviewer acceptance and remote-provider lifecycle remain open.** Draft PR #29 exact head `6af3580b8d885098bc5a6e2429d9810497808899` passed all Foundation CI steps in [run 46158564561](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/46158564561). Runtime claims below apply to the tested Linux/POSIX local filesystem behavior, not arbitrary network filesystems or power-loss semantics beyond the documented sync protocol.
 
 ## Evidence
 
@@ -18,7 +18,7 @@ Prior C3 evidence additionally exercises repeated multiprocess admission races, 
 - **Evidence:** Both profiles passed. Tests observe contention before SIGKILL, kernel release after SIGKILL, stable lock-file inode, persisted token/work counters, full reserved runtime charging, checksum rejection, fail-closed missing-journal rejection, and no repair/recreation.
 - **Root cause:** Earlier stale PID-file ownership could permit unlink/recreate races; current design uses a persistent kernel-backed exclusive lock inode and authenticated journal state.
 - **Remediation:** R2/C3 persistent lock protocol; fail closed on absent/corrupt journal during resume; F adds direct process-kill/corruption controls.
-- **Verification:** Passed locally in debug and release. Exact F hosted CI remains necessary for the final candidate.
+- **Verification:** Passed locally in debug and release. Integrated exact-head hosted CI passed at PR #29 head `6af3580` in run `46158564561`; the evidence-only follow-up commit is separately rechecked.
 
 ## Finding F-RUN-02 — platform and independent acceptance boundary
 
@@ -52,6 +52,6 @@ Prior C3 evidence additionally exercises repeated multiprocess admission races, 
 - **Evidence:** Failure occurred once at the assertion after the existence-only wait. No lock double-admission or second owner was observed. After the fix, the lock-process test passed 10 repeated invocations and the six-process C3 race test passed 3 repeated invocations; F SIGKILL/journal controls passed in debug and release.
 - **Root cause:** Test synchronization used path existence instead of a complete result record.
 - **Remediation:** Change both race-test wait predicates to require the full `contended` contents before asserting the ownership result. No runtime code or resource policy changed.
-- **Verification:** Focused controls passed 10 and 3 repeated runs respectively; the complete training package then passed in debug and release on `00905b2`. Exact F hosted CI remains part of final integration verification.
+- **Verification:** Focused controls passed 10 and 3 repeated runs respectively; the complete training package then passed in debug and release on `00905b2`. Exact F hosted CI passed on integrated source `6af3580` in run `46158564561`.
 
 Do not remove `.run.lock` during recovery. Preserve journal/checkpoint state and use `xynoos-train status`; resume only after the previous process is gone and artifacts validate.

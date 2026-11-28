@@ -6,7 +6,7 @@
 
 TASK 006-D2 defines a canonical, bounded checkpoint (maximum 16 MiB) containing parameter and optimizer identities, moments, scheduler/bias-power progress, RNG, data/tokenizer identity, cursor/order, and counters. Encoding is canonical and SHA-256 protected. Decode streams through integrity checks and performs semantic validation, including negative moment rejection. Publication stages a sibling file with private permissions, syncs it, renames atomically, and syncs the directory. Journal and checkpoint are a joint recovery set; the journal is not reconstructed when missing.
 
-Local D2 tests cover truncated/corrupt bytes, digest mismatch, identity and semantic mutations, publication fault boundaries, and exact resume equivalence against uninterrupted execution (parameters, both Adam moments, bias powers, scheduler, cursor/order, next batch, and deterministic metrics). The F journal controls additionally verify corrupted and missing journals fail closed and SIGKILL resume preserves prior resource charges. D2 exact-head hosted CI passed in [run 45784299844](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45784299844); exact F hosted CI is pending.
+Local D2 tests cover truncated/corrupt bytes, digest mismatch, identity and semantic mutations, publication fault boundaries, and exact resume equivalence against uninterrupted execution (parameters, both Adam moments, bias powers, scheduler, cursor/order, next batch, and deterministic metrics). The F journal controls additionally verify corrupted and missing journals fail closed and SIGKILL resume preserves prior resource charges. D2 exact-head hosted CI passed in [run 45784299844](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45784299844); integrated F exact-head CI passed at PR #29 head `6af3580` in [run 46158564561](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/46158564561).
 
 ## Finding F-CKPT-01 — local checkpoint recovery
 
@@ -16,7 +16,7 @@ Local D2 tests cover truncated/corrupt bytes, digest mismatch, identity and sema
 - **Evidence:** D2 package tests and C3/F journal controls pass; the checkpoint format validates SHA-256 and semantics and resumes to the same deterministic state as uninterrupted execution in covered cases.
 - **Root cause:** No local format or replay defect was identified in the covered cases.
 - **Remediation:** Preserve all recovery-set files byte-for-byte and use the documented staging/inspection procedure; do not reconstruct a missing journal or restore live process metadata.
-- **Verification:** Local control passed. Full integrated exact-head hosted CI is required for release assurance.
+- **Verification:** Local control passed. Full integrated exact-head hosted CI passed on `6af3580b8d885098bc5a6e2429d9810497808899`; off-host recovery remains unverified.
 
 ## Finding F-CKPT-02 — no verified private remote recovery domain
 

@@ -34,7 +34,7 @@ The intended dependency chain is `#18 A architecture → #19 B engine → #20 C 
 | [#27](https://github.com/samuelindra123/xynoos-cyber-model/pull/27) | D3 → `a5844e5606d2bdeaf9d4762110e63d93e71323eb` | Open draft | [run 45857473668](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45857473668) passed |
 | [#28](https://github.com/samuelindra123/xynoos-cyber-model/pull/28) | D1 → `f122f4e283b06d2cd20dd544fc0b18af4c8b6c98` | Open draft; no review decision | [run 45855781546](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45855781546) passed |
 
-CI success is evidence for the tested PR head only. These PRs were unmerged and lack an independent approval decision. The local integration candidate needs its own exact-head hosted CI and independent owner/reviewer acceptance; it must not be substituted for `main` or called an accepted training source.
+CI success is evidence for the tested PR head only. These PRs were unmerged and lack an independent approval decision. Draft integration [PR #29](https://github.com/samuelindra123/xynoos-cyber-model/pull/29) passed exact-head Foundation CI [run 46158564561](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/46158564561) on `6af3580b8d885098bc5a6e2429d9810497808899` (all 33 workflow steps succeeded). The report-only follow-up commit is being revalidated separately. The candidate must not be substituted for `main` or called an accepted training source.
 
 ## Integration findings
 
@@ -46,7 +46,7 @@ CI success is evidence for the tested PR head only. These PRs were unmerged and 
 - **Evidence:** Neither exact head was an ancestor of E. #28 branched from D1, while E descended from D2/D3. E documentation described v3, but its source tree did not contain the v3 implementation.
 - **Root cause:** Parallel draft PRs evolved after E had been prepared; passing checks belonged to different source revisions.
 - **Remediation:** Local merge commits on this F branch integrate the exact heads. Conflicts in CI required-file/check accounting and roadmap were reviewed and resolved. The PR-specific CI references above remain historical, not F validation.
-- **Verification:** `git` ancestry and full local source tree confirm the integration. F-specific hosted CI is pending in the delivery PR.
+- **Verification:** `git` ancestry and full local source tree confirm the integration. F exact-head hosted CI passed on `6af3580b8d885098bc5a6e2429d9810497808899` in run `46158564561`; the later report-only follow-up receives its own CI run.
 
 ### F-BASE-03 — race-test synchronization flake
 
@@ -66,7 +66,7 @@ CI success is evidence for the tested PR head only. These PRs were unmerged and 
 - **Evidence:** Hosted `Validate tracked privacy and artifact policy` failed before Rust toolchain installation; all preceding required-file and Markdown/YAML checks passed.
 - **Root cause:** The baseline table included the canonical checkout's local absolute path, contrary to the compute policy.
 - **Remediation:** Replace it with the repository-neutral description “the repository's one canonical worktree”; keep all personal paths and machine details out of tracked docs.
-- **Verification:** Local privacy scan after the edit is required; new exact-head hosted CI must pass the privacy gate.
+- **Verification:** Local `python3 tools/check_repository.py` passed after the edit, checking 339 tracked files. The corrected exact-head hosted run `46158564561` also passed the tracked privacy/artifact policy step; all other steps passed.
 
 ### F-BASE-02 — no accepted training revision
 
@@ -76,7 +76,7 @@ CI success is evidence for the tested PR head only. These PRs were unmerged and 
 - **Evidence:** `main` remains TASK 005 baseline; all TASK 006 dependency PRs remain drafts, with no review decision. The candidate has not been merged or accepted.
 - **Root cause:** Deliberate staged review; CI alone is not owner approval.
 - **Remediation:** Separate independent reviewer must accept numerical/runtime/scientific evidence, then owner must approve the exact immutable run bundle and normal protected integration process.
-- **Verification:** F preserves `main`; no merge was performed. Exact F PR/CI references are recorded in the final handoff when available.
+- **Verification:** F preserves `main`; no merge was performed. PR #29 remains a draft. Exact-head hosted run `46158564561` passed at the recorded head above; independent reviewer/owner acceptance is still open.
 
 ## Source and privacy boundary
 
