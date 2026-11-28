@@ -1342,8 +1342,10 @@ mod tests {
     use std::io;
     use std::os::unix::fs::PermissionsExt;
     use xynoos_autograd::{AdamWConfig, ResourceLimits};
-    use xynoos_data::Batch;
-    use xynoos_tokenizer::{TokenizerArtifact, TokenizerLimits};
+    use xynoos_data::{
+        Batch, BatchConfig, Dataset, DatasetLimits, ManifestValidator, Split, StreamConfig, Tail,
+    };
+    use xynoos_tokenizer::{Boundaries, SpecialToken, TokenizerArtifact, TokenizerLimits};
 
     const DESIGN_HEAD: &str = "26777fa95383600c003ff094216d3d1c310b051c";
     const FIXTURE: &str = include_str!("../tests/fixtures/objective_a.json");
@@ -1519,6 +1521,194 @@ mod tests {
                     batch.loss_mask(),
                 )
                 .unwrap()
+            })
+            .collect()
+    }
+
+    fn objective_a_v2_answer_bearing_batches(
+        dataset: &Dataset,
+        tokenizer: &Tokenizer,
+        split: Split,
+        audit: &Value,
+    ) -> Vec<Batch> {
+        let root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../datasets/task006-objective-a-v2");
+        let task_index: Value =
+            serde_json::from_slice(&fs::read(root.join("task-index.json")).unwrap()).unwrap();
+        let mut reader = dataset.reader(split);
+        let mut batches = Vec::new();
+        while let Some(document) = reader.next_document().unwrap() {
+            let document_id = document.record.document_id.as_str();
+            let task = task_index["examples"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["document_id"].as_str() == Some(document_id))
+                .unwrap_or_else(|| panic!("missing task index row for {document_id}"));
+            let answer_start =
+                usize::try_from(task["answer_start_byte_offset"].as_u64().unwrap()).unwrap();
+            let answer_end =
+                usize::try_from(task["target_end_byte_offset"].as_u64().unwrap()).unwrap();
+            let tokens = tokenizer
+                .encode_with_specials(
+                    &document.bytes,
+                    Boundaries {
+                        bos: true,
+                        eos: true,
+                    },
+                    TokenizerLimits::MAX,
+                )
+                .unwrap();
+            assert!(tokens.len() >= 33, "short token sequence for {document_id}");
+            let payload_token_count = tokens.len() - 2;
+            let mut answer_bearing_positions = Vec::new();
+            let mut byte_offset = 0usize;
+            let mut mask = [0_u8; 32];
+            for target_position in 0..payload_token_count {
+                let token_bytes = tokenizer
+                    .decode_bytes(
+                        &tokens[target_position + 1..target_position + 2],
+                        TokenizerLimits::MAX,
+                    )
+                    .unwrap();
+                let token_end = byte_offset.checked_add(token_bytes.len()).unwrap();
+                if byte_offset < answer_end && token_end > answer_start {
+                    assert!(target_position < mask.len());
+                    mask[target_position] = 1;
+                    answer_bearing_positions.push(target_position);
+                }
+                byte_offset = token_end;
+            }
+            assert_eq!(
+                byte_offset,
+                document.bytes.len(),
+                "token span for {document_id}"
+            );
+            let expected: Vec<usize> = audit["answer_bearing_target_positions"][document_id]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|position| usize::try_from(position.as_u64().unwrap()).unwrap())
+                .collect();
+            assert_eq!(
+                answer_bearing_positions, expected,
+                "independent token-span oracle for {document_id}"
+            );
+            batches.push(
+                Batch::from_parts(
+                    1,
+                    32,
+                    &tokens[..32],
+                    &tokens[1..33],
+                    Some(&[1_u8; 32]),
+                    Some(&mask),
+                )
+                .unwrap(),
+            );
+        }
+        batches
+    }
+
+    fn objective_a_v3_answer_bearing_batches(
+        dataset: &Dataset,
+        tokenizer: &Tokenizer,
+        split: Split,
+        audit: &Value,
+    ) -> Vec<Batch> {
+        let root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../datasets/task006-objective-a-v3");
+        let task_index: Value =
+            serde_json::from_slice(&fs::read(root.join("task-index.json")).unwrap()).unwrap();
+        let mut reader = dataset.reader(split);
+        let mut batches = Vec::new();
+        while let Some(document) = reader.next_document().unwrap() {
+            let document_id = document.record.document_id.as_str();
+            let task = task_index["examples"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["document_id"].as_str() == Some(document_id))
+                .unwrap_or_else(|| panic!("missing task index row for {document_id}"));
+            let answer_start =
+                usize::try_from(task["answer_start_byte_offset"].as_u64().unwrap()).unwrap();
+            let answer_end =
+                usize::try_from(task["target_end_byte_offset"].as_u64().unwrap()).unwrap();
+            let tokens = tokenizer
+                .encode_with_specials(
+                    &document.bytes,
+                    Boundaries {
+                        bos: true,
+                        eos: true,
+                    },
+                    TokenizerLimits::MAX,
+                )
+                .unwrap();
+            let payload_token_count = tokens.len() - 2;
+            let pair_count = payload_token_count + 1;
+            assert!(
+                pair_count <= 16,
+                "task row exceeds one window: {document_id}"
+            );
+            let mut inputs = [SpecialToken::Pad.id(); 16];
+            let mut targets = [SpecialToken::Pad.id(); 16];
+            let mut valid = [0_u8; 16];
+            let mut mask = [0_u8; 16];
+            inputs[..pair_count].copy_from_slice(&tokens[..pair_count]);
+            targets[..pair_count].copy_from_slice(&tokens[1..pair_count + 1]);
+            valid[..pair_count].fill(1);
+            let mut answer_bearing_positions = Vec::new();
+            let mut byte_offset = 0usize;
+            for target_position in 0..payload_token_count {
+                let token_bytes = tokenizer
+                    .decode_bytes(
+                        &tokens[target_position + 1..target_position + 2],
+                        TokenizerLimits::MAX,
+                    )
+                    .unwrap();
+                let token_end = byte_offset.checked_add(token_bytes.len()).unwrap();
+                if byte_offset < answer_end && token_end > answer_start {
+                    mask[target_position] = 1;
+                    answer_bearing_positions.push(target_position);
+                }
+                byte_offset = token_end;
+            }
+            assert_eq!(
+                byte_offset,
+                document.bytes.len(),
+                "token span for {document_id}"
+            );
+            let expected: Vec<usize> = audit["answer_bearing_target_positions"][document_id]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|position| usize::try_from(position.as_u64().unwrap()).unwrap())
+                .collect();
+            assert_eq!(
+                answer_bearing_positions, expected,
+                "independent token-span oracle for {document_id}"
+            );
+            batches.push(
+                Batch::from_parts(1, 16, &inputs, &targets, Some(&valid), Some(&mask)).unwrap(),
+            );
+        }
+        assert_eq!(batches.len() % 2, 0, "Objective A split must pair evenly");
+        batches
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| {
+                let mut inputs = [SpecialToken::Pad.id(); 32];
+                let mut targets = [SpecialToken::Pad.id(); 32];
+                let mut valid = [0_u8; 32];
+                let mut mask = [0_u8; 32];
+                for (row, batch) in pair.iter().enumerate() {
+                    let offset = row * 16;
+                    inputs[offset..offset + 16].copy_from_slice(batch.input());
+                    targets[offset..offset + 16].copy_from_slice(batch.target());
+                    valid[offset..offset + 16].copy_from_slice(batch.valid_mask().unwrap());
+                    mask[offset..offset + 16].copy_from_slice(batch.loss_mask().unwrap());
+                }
+                Batch::from_parts(2, 16, &inputs, &targets, Some(&valid), Some(&mask)).unwrap()
             })
             .collect()
     }
@@ -2044,6 +2234,794 @@ mod tests {
         println!("TASK006_D1_BASELINE train={}", train.to_json());
         println!("TASK006_D1_BASELINE validation={}", validation.to_json());
         println!("TASK006_D1_BASELINE test_access={}", test.to_json());
+    }
+
+    #[test]
+    fn objective_a_v2_manifest_baseline_covers_all_task_rows() {
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
+        let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig::per_document(32, 1),
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let train_order = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let validation_order = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            train_order,
+            validation_order,
+        )
+        .unwrap();
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            fitted.model(),
+            107,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let limits =
+            crate::EvaluationLimits::new(64, 2048, 8_000_000_000, 64 * 1024 * 1024, 32).unwrap();
+        let reports = [
+            crate::evaluate_standard_dataset_split(
+                &model,
+                &dataset,
+                &fitted,
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                Split::Train,
+                stream,
+                limits,
+            )
+            .unwrap(),
+            crate::evaluate_standard_dataset_split(
+                &model,
+                &dataset,
+                &fitted,
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                Split::Validation,
+                stream,
+                limits,
+            )
+            .unwrap(),
+            crate::evaluate_standard_dataset_split(
+                &model,
+                &dataset,
+                &fitted,
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                Split::Test,
+                stream,
+                limits,
+            )
+            .unwrap(),
+        ];
+        for (report, split, batches, targets, mean_loss) in [
+            (&reports[0], Split::Train, 24, 768, 5.696532328923543),
+            (&reports[1], Split::Validation, 12, 384, 5.704625407854716),
+            (&reports[2], Split::Test, 12, 384, 5.697565952936809),
+        ] {
+            assert_eq!(report.split, split);
+            assert_eq!(report.batch_count, batches);
+            assert_eq!(report.supervised_tokens, targets);
+            assert_eq!(report.mean_loss, Some(mean_loss));
+            assert!(report.coverage_complete);
+            assert!(report.all_evaluated_losses_finite);
+            assert!(report.mean_loss.unwrap().is_finite());
+        }
+        assert!(!reports[0].test_access && !reports[1].test_access);
+        assert!(reports[2].test_access);
+        assert_eq!(reports[0].model_parameter_count, 914_400);
+        assert_eq!(
+            reports[0].dataset_manifest_sha256,
+            "b3574cbcd769359ae4fc7ec4ff3f4df4f8fc5351cb004944826f87f9c38cfac1"
+        );
+        assert_eq!(
+            reports[0].tokenizer_artifact_sha256,
+            "a5a6e350d0863af2a41aeae9a73a6e07d304513f243d293c79e91eb61f39bd09"
+        );
+        assert_eq!(reports[0].model_state_sha256, reports[1].model_state_sha256);
+        assert_eq!(reports[1].model_state_sha256, reports[2].model_state_sha256);
+        assert_eq!(
+            reports[0].model_state_sha256,
+            "470fb79f5ec91c7e805115c19b90cb198586ff760b03ed7fafe4742f19f57a44"
+        );
+        for (label, report) in [
+            ("train", &reports[0]),
+            ("validation", &reports[1]),
+            ("locked_test_accessed", &reports[2]),
+        ] {
+            println!(
+                "TASK006_D1_OBJECTIVE_A_V2_BASELINE {label}={}",
+                report.to_json()
+            );
+        }
+    }
+
+    #[test]
+    fn objective_a_v2_answer_bearing_baseline_matches_audit_position_fixture() {
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
+        let dataset = ManifestValidator::open(&dataset_root, DatasetLimits::MAX).unwrap();
+        let audit: Value = serde_json::from_slice(
+            &fs::read(repository.join("../../tools/fixtures/task006-objective-a-v2-audit.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(audit["dataset_id"], dataset.manifest().dataset_id);
+        assert_eq!(audit["manifest_sha256"], hex(&dataset.manifest_sha256()));
+        assert_eq!(
+            audit["answer_start_bpe_boundary_unaligned_document_ids"]
+                .as_array()
+                .unwrap()
+                .len(),
+            8,
+            "the answer-bearing metric must preserve the known partial-token limitation"
+        );
+
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig::per_document(32, 1),
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let orders = [Split::Train, Split::Validation, Split::Test].map(|split| {
+            dataset
+                .fitted_batches(split, &fitted, stream)
+                .unwrap()
+                .order_identity()
+        });
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            orders[0],
+            orders[1],
+        )
+        .unwrap();
+        let model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            fitted.model(),
+            107,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let limits =
+            crate::EvaluationLimits::new(64, 2048, 8_000_000_000, 64 * 1024 * 1024, 32).unwrap();
+        let reports = [Split::Train, Split::Validation, Split::Test].map(|split| {
+            let batches =
+                objective_a_v2_answer_bearing_batches(&dataset, fitted.model(), split, &audit);
+            crate::evaluate_batches(
+                &model,
+                fitted.model(),
+                &identity,
+                crate::EvaluationStage::InitialBaseline,
+                VecBatchSource::for_split(
+                    batches,
+                    orders[match split {
+                        Split::Train => 0,
+                        Split::Validation => 1,
+                        Split::Test => 2,
+                    }],
+                    split,
+                ),
+                limits,
+            )
+            .unwrap()
+        });
+
+        for (report, split, batches, consumed) in [
+            (&reports[0], Split::Train, 24, 768),
+            (&reports[1], Split::Validation, 12, 384),
+            (&reports[2], Split::Test, 12, 384),
+        ] {
+            let split_name = match split {
+                Split::Train => "train",
+                Split::Validation => "validation",
+                Split::Test => "test",
+            };
+            let expected_supervised = audit["answer_bearing_supervised_targets_by_split"]
+                [split_name]
+                .as_u64()
+                .unwrap();
+            assert_eq!(report.split, split);
+            assert_eq!(report.batch_count, batches);
+            assert_eq!(report.consumed_tokens, consumed);
+            assert_eq!(report.supervised_tokens, expected_supervised);
+            assert!(report.supervised_tokens > 0);
+            assert!(report.supervised_tokens < report.consumed_tokens);
+            assert!(report.coverage_complete);
+            assert!(report.all_evaluated_losses_finite);
+            assert!(report.mean_loss.unwrap().is_finite());
+        }
+        assert!(!reports[0].test_access && !reports[1].test_access);
+        assert!(reports[2].test_access);
+        assert_eq!(reports[0].model_state_sha256, reports[1].model_state_sha256);
+        assert_eq!(reports[1].model_state_sha256, reports[2].model_state_sha256);
+        for (split, report) in [
+            ("train", &reports[0]),
+            ("validation", &reports[1]),
+            ("locked_test_accessed", &reports[2]),
+        ] {
+            println!(
+                "TASK006_D1_ANSWER_BEARING_BASELINE {split}={}",
+                report.to_json()
+            );
+        }
+    }
+
+    #[test]
+    fn objective_a_v3_manifest_unchanged_weight_baseline() {
+        // Deterministic unchanged-weight Objective A evaluation only. This is
+        // a software baseline, not a TASK 006-D training run.
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v3");
+        let audit: Value = serde_json::from_slice(
+            &fs::read(repository.join("../../tools/fixtures/task006-objective-a-v3-audit.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let memory =
+            TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap();
+        let per_stream_dataset_bytes = memory.dataset_buffer_bytes() / 2;
+        let document_bytes = (per_stream_dataset_bytes / 2).max(1);
+        let stream_buffer = per_stream_dataset_bytes - document_bytes;
+        let mut data_limits = DatasetLimits::MAX;
+        data_limits.metadata_bytes = memory.dataset_metadata_bytes();
+        data_limits.document_bytes = document_bytes;
+        data_limits.reader_bytes = memory.reader_buffer_bytes() / 2;
+        data_limits.token_buffer_bytes = stream_buffer;
+        data_limits.sequence_length = 16;
+        data_limits.batch_size = 2;
+        data_limits.batch_positions = 32;
+        let dataset = ManifestValidator::open(&dataset_root, data_limits).unwrap();
+        assert_eq!(dataset.records().len(), 60);
+        assert_eq!(audit["dataset_id"], dataset.manifest().dataset_id);
+        assert_eq!(audit["manifest_sha256"], hex(&dataset.manifest_sha256()));
+        assert_eq!(audit["cross_split_near_duplicate_pair_count"], 0);
+        assert!(
+            audit["template_overlap_between_splits"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|value| value.as_array().unwrap().is_empty())
+        );
+        assert!(
+            audit["heldout_input_combination_overlap"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|value| value.as_array().unwrap().is_empty())
+        );
+
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig {
+                sequence_length: 16,
+                stride: 16,
+                batch_size: 2,
+                tail: Tail::Pad,
+                pad_final_batch: false,
+            },
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let orders = [Split::Train, Split::Validation, Split::Test].map(|split| {
+            dataset
+                .fitted_batches(split, &fitted, stream)
+                .unwrap()
+                .order_identity()
+        });
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            orders[0],
+            orders[1],
+        )
+        .unwrap();
+        let initial_model = Transformer::new(
+            Config::RESEARCH_CANDIDATE,
+            fitted.model(),
+            107,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(initial_model.parameter_count(), 914_400);
+        let full_limits =
+            crate::EvaluationLimits::new(32, 512, 8_000_000_000, 4 * 1024 * 1024, 32).unwrap();
+        let full_train = crate::evaluate_standard_dataset_split(
+            &initial_model,
+            &dataset,
+            &fitted,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            Split::Train,
+            stream,
+            full_limits,
+        )
+        .unwrap();
+        let full_validation = crate::evaluate_standard_dataset_split(
+            &initial_model,
+            &dataset,
+            &fitted,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            Split::Validation,
+            stream,
+            full_limits,
+        )
+        .unwrap();
+        assert_eq!(full_train.batch_count, 12);
+        assert_eq!(full_validation.batch_count, 9);
+        assert_eq!(full_train.supervised_tokens, 197);
+        assert_eq!(full_validation.supervised_tokens, 199);
+        assert!(!full_train.test_access && !full_validation.test_access);
+        assert_eq!(
+            full_train.model_state_sha256,
+            full_validation.model_state_sha256
+        );
+        let full_test = crate::evaluate_standard_dataset_split(
+            &initial_model,
+            &dataset,
+            &fitted,
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            Split::Test,
+            stream,
+            full_limits,
+        )
+        .unwrap();
+        assert_eq!(full_test.batch_count, 9);
+        assert_eq!(full_test.supervised_tokens, 172);
+        assert!(full_test.test_access && full_test.coverage_complete);
+        assert_eq!(full_train.model_state_sha256, full_test.model_state_sha256);
+
+        let answer_limits =
+            crate::EvaluationLimits::new(32, 512, 8_000_000_000, 4 * 1024 * 1024, 32).unwrap();
+        let answer_validation = crate::evaluate_batches(
+            &initial_model,
+            fitted.model(),
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            VecBatchSource::for_split(
+                objective_a_v3_answer_bearing_batches(
+                    &dataset,
+                    fitted.model(),
+                    Split::Validation,
+                    &audit,
+                ),
+                orders[1],
+                Split::Validation,
+            ),
+            answer_limits,
+        )
+        .unwrap();
+        let answer_test_baseline = crate::evaluate_batches(
+            &initial_model,
+            fitted.model(),
+            &identity,
+            crate::EvaluationStage::InitialBaseline,
+            VecBatchSource::for_split(
+                objective_a_v3_answer_bearing_batches(
+                    &dataset,
+                    fitted.model(),
+                    Split::Test,
+                    &audit,
+                ),
+                orders[2],
+                Split::Test,
+            ),
+            answer_limits,
+        )
+        .unwrap();
+        assert_eq!(answer_validation.batch_count, 9);
+        assert_eq!(answer_validation.supervised_tokens, 28);
+        assert!(answer_validation.coverage_complete && !answer_validation.test_access);
+        assert_eq!(answer_test_baseline.batch_count, 9);
+        assert_eq!(answer_test_baseline.supervised_tokens, 27);
+        assert!(answer_test_baseline.coverage_complete && answer_test_baseline.test_access);
+        assert_eq!(
+            full_train.model_state_sha256,
+            answer_test_baseline.model_state_sha256
+        );
+        println!(
+            "TASK006_D1_OBJECTIVE_A_V3_BASELINE train={}",
+            full_train.to_json()
+        );
+        println!(
+            "TASK006_D1_OBJECTIVE_A_V3_BASELINE validation={}",
+            full_validation.to_json()
+        );
+        println!(
+            "TASK006_D1_OBJECTIVE_A_V3_BASELINE locked_test={}",
+            full_test.to_json()
+        );
+        println!(
+            "TASK006_D1_OBJECTIVE_A_V3_ANSWER_BASELINE validation={}",
+            answer_validation.to_json()
+        );
+        println!(
+            "TASK006_D1_OBJECTIVE_A_V3_ANSWER_BASELINE locked_test={}",
+            answer_test_baseline.to_json()
+        );
+
+        let baseline_work = u128::from(full_train.total_forward_work)
+            + u128::from(full_validation.total_forward_work)
+            + u128::from(full_test.total_forward_work)
+            + u128::from(answer_validation.total_forward_work)
+            + u128::from(answer_test_baseline.total_forward_work);
+        assert!(baseline_work <= 8_000_000_000);
+        println!("TASK006_D1_OBJECTIVE_A_V3_BASELINE total_evaluation_work={baseline_work}");
+    }
+
+    #[test]
+    fn objective_a_v3_manifest_runs_two_bounded_trainer_updates() {
+        // This checks native data-to-update plumbing only; two updates do
+        // not establish scientific sufficiency or a TASK 006-D experiment.
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v3");
+        let memory =
+            TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap();
+        let per_stream_dataset_bytes = memory.dataset_buffer_bytes() / 2;
+        let document_bytes = (per_stream_dataset_bytes / 2).max(1);
+        let stream_buffer = per_stream_dataset_bytes - document_bytes;
+        let mut data_limits = DatasetLimits::MAX;
+        data_limits.metadata_bytes = memory.dataset_metadata_bytes();
+        data_limits.document_bytes = document_bytes;
+        data_limits.reader_bytes = memory.reader_buffer_bytes() / 2;
+        data_limits.token_buffer_bytes = stream_buffer;
+        data_limits.sequence_length = 32;
+        data_limits.batch_size = 1;
+        data_limits.batch_positions = 32;
+        let dataset = ManifestValidator::open(&dataset_root, data_limits).unwrap();
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig {
+                sequence_length: 32,
+                stride: 32,
+                batch_size: 1,
+                tail: Tail::Pad,
+                pad_final_batch: false,
+            },
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let train_order = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let validation_order = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            train_order,
+            validation_order,
+        )
+        .unwrap();
+        let limits = RunLimits::new(
+            1,
+            2,
+            64,
+            64,
+            8_000_000_000,
+            ResourceLimits::MAX_BYTES,
+            Duration::from_secs(120),
+            Duration::from_secs(90),
+            1,
+            1,
+        )
+        .unwrap();
+        let config = TrainingConfig::new(
+            AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
+            LinearWarmupDecay::new(2, 0, 1e-3, 1e-4).unwrap(),
+            limits,
+            memory,
+            ResourceLimits::default(),
+            Some(1.0),
+            107,
+        )
+        .unwrap()
+        .with_validation_limits(
+            crate::EvaluationLimits::new(1, 1024, 250_000_000, 4 * 1024 * 1024, 32).unwrap(),
+        )
+        .unwrap();
+
+        let mut expected_source = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap();
+        let mut expected_consumed = 0_u64;
+        let mut expected_supervised = 0_u64;
+        for _ in 0..2 {
+            let batch = expected_source.next_batch().unwrap().unwrap();
+            assert_eq!(batch.shape(), [1, 32]);
+            let (consumed, supervised) = count_batch(&batch).unwrap();
+            expected_consumed += consumed;
+            expected_supervised += supervised;
+        }
+        let train = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap();
+        let mut validation = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap();
+        let root = root("objective-a-v3-smoke");
+        let mut trainer = Trainer::new(
+            &root,
+            identity,
+            config,
+            fitted.model(),
+            train,
+            StopToken::new(),
+        )
+        .unwrap();
+        let parameter_id = trainer.model().inventory().next().unwrap().1;
+        let before: Vec<u32> = trainer
+            .model()
+            .parameters()
+            .value(parameter_id)
+            .unwrap()
+            .data()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect();
+
+        let report = trainer.run(Some(&mut validation)).unwrap();
+
+        let after: Vec<u32> = trainer
+            .model()
+            .parameters()
+            .value(parameter_id)
+            .unwrap()
+            .data()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect();
+        assert_eq!(report.stop_reason, StopReason::ScheduleComplete);
+        assert_eq!(report.counters.completed_updates, 2);
+        assert_eq!(report.counters.committed_cursor, 2);
+        assert_eq!(report.counters.committed_consumed_tokens, expected_consumed);
+        assert_eq!(
+            report.counters.committed_supervised_tokens,
+            expected_supervised
+        );
+        assert!(report.counters.committed_consumed_tokens <= 64);
+        assert!(report.counters.committed_supervised_tokens > 0);
+        assert!(report.counters.validation_supervised_tokens > 0);
+        assert_eq!(trainer.optimizer().step_count(), 2);
+        assert!(report.last_loss.is_some_and(f64::is_finite));
+        assert_ne!(
+            before, after,
+            "manifest-backed updates must change parameters"
+        );
+        let metrics = fs::read_to_string(root.join("metrics.jsonl")).unwrap();
+        assert_eq!(
+            metrics
+                .lines()
+                .filter(|line| line.contains("\"type\":\"validation\""))
+                .count(),
+            2
+        );
+        assert!(metrics.contains("\"test_access\":false"));
+        assert!(!metrics.contains("\"test_access\":true"));
+        assert!(root.join("checkpoint.xyckpt").is_file());
+        assert!(report.counters.cumulative_work <= 8_000_000_000);
+        println!(
+            "TASK006_D1_V3_TRAINER_SMOKE updates={} consumed_tokens={} supervised_tokens={} validation_tokens={} cumulative_work={} cumulative_runtime_ns={} owned_peak_bytes={} autograd_peak_bytes={} process_vm_hwm_bytes={:?}",
+            report.counters.completed_updates,
+            report.counters.committed_consumed_tokens,
+            report.counters.committed_supervised_tokens,
+            report.counters.validation_supervised_tokens,
+            report.counters.cumulative_work,
+            report.counters.cumulative_runtime_ns,
+            report.owned_memory_peak_bytes,
+            report.autograd_ledger_peak_bytes,
+            report.process_vm_hwm_bytes,
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn objective_a_v2_manifest_runs_two_bounded_trainer_updates() {
+        // This is an integration check for the native manifest-backed path,
+        // not evidence that two updates are scientifically sufficient.
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dataset_root = repository.join("../../datasets/task006-objective-a-v2");
+        let memory =
+            TrainingMemoryPlan::candidate(4 * 1024 * 1024, ResourceLimits::MAX_BYTES).unwrap();
+        let mut data_limits = DatasetLimits::MAX;
+        let per_stream_dataset_bytes = memory.dataset_buffer_bytes() / 2;
+        let document_bytes = (per_stream_dataset_bytes / 2).max(1);
+        let stream_buffer = per_stream_dataset_bytes - document_bytes;
+        data_limits.metadata_bytes = memory.dataset_metadata_bytes();
+        data_limits.document_bytes = document_bytes;
+        data_limits.reader_bytes = memory.reader_buffer_bytes() / 2;
+        data_limits.token_buffer_bytes = stream_buffer;
+        data_limits.sequence_length = 32;
+        data_limits.batch_size = 1;
+        data_limits.batch_positions = 32;
+        let dataset = ManifestValidator::open(&dataset_root, data_limits).unwrap();
+        let fitted = dataset
+            .fit_bpe(Split::Train, 32, TokenizerLimits::MAX)
+            .unwrap();
+        let stream = StreamConfig {
+            batch: BatchConfig::per_document(32, 1),
+            boundaries: Boundaries {
+                bos: true,
+                eos: true,
+            },
+            tokenizer_limits: TokenizerLimits::MAX,
+        };
+        let train_order = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let validation_order = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap()
+            .order_identity();
+        let source_identity = crate::attest_source_checkout(
+            &repository,
+            crate::SOURCE_REPOSITORY_ID,
+            env!("XYNOOS_BUILD_SOURCE_REVISION"),
+        )
+        .unwrap();
+        let identity = RunIdentity::from_standard_dataset(
+            source_identity,
+            &dataset,
+            fitted.model(),
+            train_order,
+            validation_order,
+        )
+        .unwrap();
+        let limits = RunLimits::new(
+            1,
+            2,
+            64,
+            64,
+            8_000_000_000,
+            ResourceLimits::MAX_BYTES,
+            Duration::from_secs(120),
+            Duration::from_secs(90),
+            1,
+            1,
+        )
+        .unwrap();
+        let config = TrainingConfig::new(
+            AdamWConfig::new(0.9, 0.999, 1e-8, 0.01).unwrap(),
+            LinearWarmupDecay::new(2, 0, 1e-3, 1e-4).unwrap(),
+            limits,
+            memory,
+            ResourceLimits::default(),
+            Some(1.0),
+            107,
+        )
+        .unwrap()
+        .with_validation_limits(
+            crate::EvaluationLimits::new(1, 1024, 250_000_000, 4 * 1024 * 1024, 32).unwrap(),
+        )
+        .unwrap();
+        let train = dataset
+            .fitted_batches(Split::Train, &fitted, stream)
+            .unwrap();
+        let mut validation = dataset
+            .fitted_batches(Split::Validation, &fitted, stream)
+            .unwrap();
+        let root = root("objective-a-v2-smoke");
+        let mut trainer = Trainer::new(
+            &root,
+            identity,
+            config,
+            fitted.model(),
+            train,
+            StopToken::new(),
+        )
+        .unwrap();
+        let parameter_id = trainer.model().inventory().next().unwrap().1;
+        let before: Vec<u32> = trainer
+            .model()
+            .parameters()
+            .value(parameter_id)
+            .unwrap()
+            .data()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect();
+
+        let report = trainer.run(Some(&mut validation)).unwrap();
+
+        let after: Vec<u32> = trainer
+            .model()
+            .parameters()
+            .value(parameter_id)
+            .unwrap()
+            .data()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect();
+        assert_eq!(report.stop_reason, StopReason::ScheduleComplete);
+        assert_eq!(report.counters.completed_updates, 2);
+        assert_eq!(report.counters.committed_cursor, 2);
+        assert_eq!(report.counters.committed_consumed_tokens, 64);
+        assert_eq!(report.counters.committed_supervised_tokens, 64);
+        assert_eq!(report.counters.validation_supervised_tokens, 64);
+        assert_eq!(trainer.optimizer().step_count(), 2);
+        assert!(report.last_loss.is_some_and(f64::is_finite));
+        assert_ne!(
+            before, after,
+            "the manifest-backed update must change parameters"
+        );
+        let metrics = fs::read_to_string(root.join("metrics.jsonl")).unwrap();
+        assert_eq!(
+            metrics
+                .lines()
+                .filter(|line| line.contains("\"type\":\"validation\""))
+                .count(),
+            2
+        );
+        assert!(metrics.contains("\"test_access\":false"));
+        assert!(!metrics.contains("\"test_access\":true"));
+        assert!(root.join("checkpoint.xyckpt").is_file());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

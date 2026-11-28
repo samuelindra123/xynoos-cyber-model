@@ -1,0 +1,2 @@
+Parity: n=404, rem2=0; class=even. Fixed rule.
+ End of record. Synthetic control sample.

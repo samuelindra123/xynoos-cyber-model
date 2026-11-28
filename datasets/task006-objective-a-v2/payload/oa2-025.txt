@@ -1,0 +1,2 @@
+Pair 402,400; relation=above. Signed.
+ End of record. Synthetic control sample.

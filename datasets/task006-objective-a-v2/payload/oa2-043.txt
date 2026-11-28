@@ -1,0 +1,2 @@
+n=706, residue2=0; parity=even. Task.
+ End of record. Synthetic control sample.

@@ -1,0 +1,2 @@
+Seq 465,468,471; d=3; next=474.
+ End of record. Synthetic control sample.

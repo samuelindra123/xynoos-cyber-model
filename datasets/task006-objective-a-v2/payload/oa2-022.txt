@@ -1,0 +1,2 @@
+Terms 107,108,109; plus 1; next=110.
+ End of record. Synthetic control sample.

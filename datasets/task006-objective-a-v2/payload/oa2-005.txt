@@ -1,0 +1,2 @@
+Compare 105/106; relation=below. Integer order.
+ End of record. Synthetic control sample.

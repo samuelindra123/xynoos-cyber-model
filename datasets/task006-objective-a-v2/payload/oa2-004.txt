@@ -1,0 +1,2 @@
+Order 103 relative 102: above. Fixed rule.
+ End of record. Synthetic control sample.

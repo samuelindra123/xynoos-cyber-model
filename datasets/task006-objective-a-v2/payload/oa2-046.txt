@@ -1,0 +1,2 @@
+728,729,730; step 1; next 731.
+ End of record. Synthetic control sample.

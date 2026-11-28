@@ -1,0 +1,2 @@
+Prog 106,113,120; d=7; next=127.
+ End of record. Synthetic control sample.

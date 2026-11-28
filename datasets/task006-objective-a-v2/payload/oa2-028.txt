@@ -1,0 +1,2 @@
+Order 431 relative 431: equal. Fixed rule.
+ End of record. Synthetic control sample.

@@ -54,3 +54,12 @@ This fixture can check deterministic aggregation and a narrow optimizer
 learning signal. It is too small to choose a learning rate or support a
 generalization claim. Objective B remains unavailable until a separate,
 licensed corpus passes provenance and quality review.
+
+Objective A v3 expands the authored control to 60 rows and prevents the same
+task-input combination or prompt template from crossing splits. Its audit finds
+no cross-split near-duplicate pair at the fixed 0.82 character-trigram
+threshold, but this does not prevent memorization of the small public task
+inventory. See the [v3 baseline and leakage report](reports/TASK-006-D1-OBJECTIVE-A-V3-DATASET.md).
+The initial weights are evaluated without updates; there is no measured v3
+learning improvement. A separate human review remains required before any
+experiment admission.
