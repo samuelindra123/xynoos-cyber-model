@@ -1,0 +1,438 @@
+{
+  "all_answers_within_first_16_target_positions": true,
+  "answer_bearing_supervised_targets_by_split": {
+    "test": 27,
+    "train": 35,
+    "validation": 28
+  },
+  "answer_bearing_target_positions": {
+    "oa3-001": [
+      5
+    ],
+    "oa3-002": [
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "oa3-003": [
+      4
+    ],
+    "oa3-004": [
+      8
+    ],
+    "oa3-005": [
+      7
+    ],
+    "oa3-006": [
+      6
+    ],
+    "oa3-007": [
+      6
+    ],
+    "oa3-008": [
+      6
+    ],
+    "oa3-009": [
+      6
+    ],
+    "oa3-010": [
+      4
+    ],
+    "oa3-011": [
+      6
+    ],
+    "oa3-012": [
+      5
+    ],
+    "oa3-013": [
+      5
+    ],
+    "oa3-014": [
+      6
+    ],
+    "oa3-015": [
+      4
+    ],
+    "oa3-016": [
+      6
+    ],
+    "oa3-017": [
+      8,
+      9
+    ],
+    "oa3-018": [
+      4,
+      5
+    ],
+    "oa3-019": [
+      5,
+      6
+    ],
+    "oa3-020": [
+      7,
+      8
+    ],
+    "oa3-021": [
+      5,
+      6
+    ],
+    "oa3-022": [
+      4,
+      5
+    ],
+    "oa3-023": [
+      8
+    ],
+    "oa3-024": [
+      7,
+      8
+    ],
+    "oa3-025": [
+      7
+    ],
+    "oa3-026": [
+      9
+    ],
+    "oa3-027": [
+      9
+    ],
+    "oa3-028": [
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "oa3-029": [
+      9
+    ],
+    "oa3-030": [
+      7
+    ],
+    "oa3-031": [
+      11
+    ],
+    "oa3-032": [
+      10
+    ],
+    "oa3-033": [
+      10
+    ],
+    "oa3-034": [
+      9
+    ],
+    "oa3-035": [
+      9
+    ],
+    "oa3-036": [
+      10
+    ],
+    "oa3-037": [
+      7,
+      8
+    ],
+    "oa3-038": [
+      8,
+      9
+    ],
+    "oa3-039": [
+      9,
+      10
+    ],
+    "oa3-040": [
+      6,
+      7
+    ],
+    "oa3-041": [
+      6,
+      7
+    ],
+    "oa3-042": [
+      9,
+      10
+    ],
+    "oa3-043": [
+      5
+    ],
+    "oa3-044": [
+      9
+    ],
+    "oa3-045": [
+      6
+    ],
+    "oa3-046": [
+      4
+    ],
+    "oa3-047": [
+      9,
+      10,
+      11,
+      12,
+      13
+    ],
+    "oa3-048": [
+      8
+    ],
+    "oa3-049": [
+      8
+    ],
+    "oa3-050": [
+      7
+    ],
+    "oa3-051": [
+      9
+    ],
+    "oa3-052": [
+      7
+    ],
+    "oa3-053": [
+      8
+    ],
+    "oa3-054": [
+      9
+    ],
+    "oa3-055": [
+      7
+    ],
+    "oa3-056": [
+      5,
+      6
+    ],
+    "oa3-057": [
+      7,
+      8
+    ],
+    "oa3-058": [
+      6,
+      7
+    ],
+    "oa3-059": [
+      5,
+      6
+    ],
+    "oa3-060": [
+      8,
+      9
+    ]
+  },
+  "answer_bpe_position_max": 14,
+  "answer_classes_by_split_and_family": {
+    "test": {
+      "comparison": {
+        "above": 2,
+        "below": 3,
+        "equal": 1
+      },
+      "parity": {
+        "even": 3,
+        "odd": 3
+      },
+      "progression": {
+        "v0": 1,
+        "v1": 1,
+        "v11": 1,
+        "v13": 1,
+        "v14": 1,
+        "v5": 1
+      }
+    },
+    "train": {
+      "comparison": {
+        "above": 3,
+        "below": 4,
+        "equal": 1
+      },
+      "parity": {
+        "even": 4,
+        "odd": 4
+      },
+      "progression": {
+        "v0": 1,
+        "v1": 1,
+        "v10": 1,
+        "v11": 1,
+        "v2": 1,
+        "v5": 1,
+        "v6": 1,
+        "v7": 1
+      }
+    },
+    "validation": {
+      "comparison": {
+        "above": 3,
+        "below": 2,
+        "equal": 1
+      },
+      "parity": {
+        "even": 4,
+        "odd": 2
+      },
+      "progression": {
+        "v0": 1,
+        "v10": 1,
+        "v11": 1,
+        "v12": 1,
+        "v13": 1,
+        "v7": 1
+      }
+    }
+  },
+  "answer_end_bpe_boundary_aligned_count": 60,
+  "answer_end_bpe_position_max": 14,
+  "answer_only_boundary_ready": false,
+  "answer_prompt_bpe_position_max": 11,
+  "answer_start_bpe_boundary_aligned_count": 50,
+  "answer_start_bpe_boundary_unaligned_document_ids": [
+    "oa3-001",
+    "oa3-003",
+    "oa3-011",
+    "oa3-013",
+    "oa3-021",
+    "oa3-022",
+    "oa3-025",
+    "oa3-043",
+    "oa3-056",
+    "oa3-059"
+  ],
+  "answers_appear_once_after_their_inputs": true,
+  "assessment": "authored-synthetic-compositional-control-only",
+  "bpe_payload_token_count_max": 14,
+  "bpe_payload_token_count_min": 5,
+  "cross_split_near_duplicate_pair_classes": {
+    "cross_family": 0,
+    "same_family_different_template": 0,
+    "same_family_same_template": 0
+  },
+  "cross_split_near_duplicate_pair_count": 0,
+  "cross_split_near_duplicate_pairs": [],
+  "dataset_id": "6b8d4b140c8d20636b206cb6259a1789a2734f5a13d7fd234e3d39aad3037c87",
+  "document_registry_sha256": "76842cc832ec49fe807e5b7f6bbdbe0a4ba08f96190629040512d97be9a8874a",
+  "heldout_input_combination_overlap": {
+    "train_vs_test/comparison": [],
+    "train_vs_test/parity": [],
+    "train_vs_test/progression": [],
+    "train_vs_validation/comparison": [],
+    "train_vs_validation/parity": [],
+    "train_vs_validation/progression": [],
+    "validation_vs_test/comparison": [],
+    "validation_vs_test/parity": [],
+    "validation_vs_test/progression": []
+  },
+  "limitations": [
+    "Three synthetic task families test operand-combination transfer across split-exclusive prompt templates, not broad reasoning or cybersecurity competence.",
+    "Each split contains only 18 or 36 examples; estimates are descriptive and are not powered generalization claims.",
+    "The test split is in the public repository and is not secret; runtime access logging does not prevent a human from reading it.",
+    "No cross-split pair exceeds the fixed 0.82 character-trigram similarity threshold; semantic similarity can still escape this surface metric.",
+    "Character-trigram similarity misses semantic leakage; the task index is needed to detect input-combination overlap.",
+    "The tokenizer is fit only on the train split, but shared task vocabulary across splits is intentional and does not imply independent lexical domains.",
+    "10 answer starts fall inside a BPE token; answer-bearing loss includes the intersecting token and is not strict answer-only loss for those rows.",
+    "A separate human quality review remains required before experiment admission."
+  ],
+  "manifest_sha256": "db2577c6ed7f0f74c69b643dc9d74683c76084ddf8dc21bddc0ce072c56562b8",
+  "max_cross_split_character_trigram_jaccard": 0.461538,
+  "near_duplicate_threshold": 0.82,
+  "normalized_exact_cross_split_duplicates": [],
+  "record_count": 60,
+  "rows_by_split": {
+    "test": 18,
+    "train": 24,
+    "validation": 18
+  },
+  "schema_version": 1,
+  "source_registry_sha256": "906e5b5978f196ea516e5523ee8835e4d005bbae8e906e959902c6d93e19b541",
+  "supervised_targets_by_split": {
+    "test": 172,
+    "train": 197,
+    "validation": 199
+  },
+  "task_examples_by_split_and_family": {
+    "test": {
+      "comparison": 6,
+      "parity": 6,
+      "progression": 6
+    },
+    "train": {
+      "comparison": 8,
+      "parity": 8,
+      "progression": 8
+    },
+    "validation": {
+      "comparison": 6,
+      "parity": 6,
+      "progression": 6
+    }
+  },
+  "task_index_sha256": "109be2a19625e1d8483164cefb5a61994947c5d3c821557c86a21d2c884f84b0",
+  "template_overlap_between_splits": {
+    "train_vs_test/comparison": [],
+    "train_vs_test/parity": [],
+    "train_vs_test/progression": [],
+    "train_vs_validation/comparison": [],
+    "train_vs_validation/parity": [],
+    "train_vs_validation/progression": [],
+    "validation_vs_test/comparison": [],
+    "validation_vs_test/parity": [],
+    "validation_vs_test/progression": []
+  },
+  "templates_by_split_and_family": {
+    "test": {
+      "comparison": [
+        6,
+        7
+      ],
+      "parity": [
+        6,
+        7
+      ],
+      "progression": [
+        6,
+        7
+      ]
+    },
+    "train": {
+      "comparison": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "parity": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "progression": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "validation": {
+      "comparison": [
+        4,
+        5
+      ],
+      "parity": [
+        4,
+        5
+      ],
+      "progression": [
+        4,
+        5
+      ]
+    }
+  },
+  "tokenizer_artifact_sha256": "9ac03af34eaa496a54dc7721f83107ecdd14c26c643fb4c51d34de9afe77d6d0",
+  "tokenizer_fit": {
+    "artifact_recomputed_by_separate_standard_library_audit": true,
+    "fit_records": 24,
+    "fit_split": "train",
+    "heldout_rows_used_in_fit": 0,
+    "train_manifest_sha256_recomputed": "a95c0fd142e6c8ce7af854afd741bba576d6d3b42d9f0055a39bb9e275907a2f"
+  },
+  "tokenizer_fit_record_sha256": "28d037fb18b57231ede816cd2bb673230b211c92f3c5bf611287b55915b8d203"
+}

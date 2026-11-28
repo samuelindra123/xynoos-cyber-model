@@ -1,0 +1,2 @@
+104,109,114; step 5; next 119.
+ End of record. Synthetic control sample.

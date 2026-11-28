@@ -1,0 +1,2 @@
+Seq 101,103,105; d=2; next=107.
+ End of record. Synthetic control sample.

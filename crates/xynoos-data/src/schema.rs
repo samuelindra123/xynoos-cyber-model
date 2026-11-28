@@ -237,7 +237,7 @@ impl DocumentRecord {
         {
             return Err(InvalidSchema);
         }
-        if self.duplicate_group_id != self.content_sha256 {
+        if !digest_text(&self.duplicate_group_id) {
             return Err(InvalidSplit);
         }
         if self.byte_length == 0 {
@@ -309,7 +309,10 @@ impl DatasetManifest {
             || !identifier(&self.dataset_version)
             || !identifier(&self.split_seed)
             || self.split_algorithm != "sha256-group"
-            || self.group_key_policy != "content-sha256"
+            || !matches!(
+                self.group_key_policy.as_str(),
+                "content-sha256" | "task-input-sha256"
+            )
         {
             return Err(InvalidSchema);
         }

@@ -147,7 +147,9 @@ fn independent_process_races_never_obtain_two_journal_owners() {
         wait_until(|| {
             evidence
                 .iter()
-                .filter(|(_, result)| result.exists())
+                .filter(|(_, result)| {
+                    fs::read_to_string(result).is_ok_and(|value| value == "contended")
+                })
                 .count()
                 == 5
                 && evidence.iter().any(|(ready, _)| ready.exists())
@@ -164,7 +166,12 @@ fn independent_process_races_never_obtain_two_journal_owners() {
                     .is_ok_and(|value| value == "contended"))
                 .count(),
             5,
-            "round {round} did not reject every non-owner"
+            "round {round} did not reject every non-owner; observed results: {:?}",
+            evidence
+                .iter()
+                .map(|(_, result)| fs::read_to_string(result)
+                    .unwrap_or_else(|error| format!("<unreadable: {error}>")))
+                .collect::<Vec<_>>()
         );
         fs::write(&release, b"release owner\n").unwrap();
         for mut worker in workers {
@@ -373,9 +380,12 @@ fn independent_sidecar_interruption_leaves_only_recoverable_staging() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
 
     let python = r#"
-import resource, signal, subprocess, sys
+import os, resource, signal, subprocess, sys
 resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
-result = subprocess.run(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+environment = dict(os.environ, GIT_OPTIONAL_LOCKS='0')
+result = subprocess.run(sys.argv[1:], env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+if result.returncode != -signal.SIGXFSZ:
+    sys.stderr.write(f"child returncode={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}\\n")
 sys.exit(0 if result.returncode == -signal.SIGXFSZ else 1)
 "#;
     let interrupted = Command::new("python3")

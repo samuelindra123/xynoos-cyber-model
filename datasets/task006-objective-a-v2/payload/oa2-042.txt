@@ -1,0 +1,2 @@
+Parity n=703 r=1 => odd. Rule fixed.
+ End of record. Synthetic control sample.
