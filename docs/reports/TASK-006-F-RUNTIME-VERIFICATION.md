@@ -4,7 +4,7 @@
 
 ## Evidence
 
-At exact C3 audit head `b7656abbc38703b3a34652cc5c7f9435a2b0c32c`, `cargo test -p xynoos-training --locked --offline -- --show-output` passed the training library, CLI, process-lock, C3, and doctest suites. Exact-head hosted checks passed in [PR #23 run 45824251360](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45824251360). Added for F, the auditor-authored `task006f_runtime_independent.rs` independently passes in debug and release on the integrated source. During F's broader local run, an existing process-race test exposed a test-only synchronization flake; F fixed it and the focused test passed ten consecutive lock-process runs and three C3 race runs.
+At exact C3 audit head `b7656abbc38703b3a34652cc5c7f9435a2b0c32c`, `cargo test -p xynoos-training --locked --offline -- --show-output` passed the training library, CLI, process-lock, C3, and doctest suites. Exact-head hosted checks passed in [PR #23 run 45824251360](https://github.com/samuelindra123/xynoos-cyber-model/actions/runs/45824251360). On F source `00905b2abc11d46002da57f2607a3ec18a73f956`, the complete `xynoos-training` package passed in debug and release: 46 library tests, 5 CLI unit tests, 3 CLI process tests, 5 lock-process tests, 5 C3 tests, 2 active F tests (one subprocess entrypoint ignored), and one provenance compile-fail doctest. During F's broader local run, an existing process-race test exposed a test-only synchronization flake; F fixed it and the focused test passed ten consecutive lock-process runs and three C3 race runs.
 
 The added SIGKILL control starts a subprocess that owns the journal, confirms another process receives `RunLockContended`, kills the owner with signal 9, confirms kernel lock release and stable `.run.lock` inode, then resumes and verifies precharged tokens/work remain charged and the reserved attempt runtime is charged in full. The second control corrupts the journal checksum and then removes the journal; both resume attempts fail closed without rewriting corrupt bytes or recreating missing state.
 
@@ -52,6 +52,6 @@ Prior C3 evidence additionally exercises repeated multiprocess admission races, 
 - **Evidence:** Failure occurred once at the assertion after the existence-only wait. No lock double-admission or second owner was observed. After the fix, the lock-process test passed 10 repeated invocations and the six-process C3 race test passed 3 repeated invocations; F SIGKILL/journal controls passed in debug and release.
 - **Root cause:** Test synchronization used path existence instead of a complete result record.
 - **Remediation:** Change both race-test wait predicates to require the full `contended` contents before asserting the ownership result. No runtime code or resource policy changed.
-- **Verification:** Repeated focused controls pass. A complete post-fix training-package debug/release result and exact F hosted CI remain part of final integration verification.
+- **Verification:** Focused controls passed 10 and 3 repeated runs respectively; the complete training package then passed in debug and release on `00905b2`. Exact F hosted CI remains part of final integration verification.
 
 Do not remove `.run.lock` during recovery. Preserve journal/checkpoint state and use `xynoos-train status`; resume only after the previous process is gone and artifacts validate.

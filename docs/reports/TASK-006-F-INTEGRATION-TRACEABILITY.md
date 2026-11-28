@@ -5,7 +5,7 @@
 | Requirement / phase | Source or evidence | Verification | Status |
 |---|---|---|---|
 | Phase 0 repository forensics | F baseline report; `AGENTS.md`; compute/engineering policies | Main SHA, ancestry, PR base/head and CI records, one worktree, no tags | Pass; F exact hosted CI pending |
-| Runtime locking/admission/crash | R2 `21d9990`, C3 `b7656ab`, F test `task006f_runtime_independent.rs` | C3 suite; F debug/release SIGKILL and corruption/missing journal tests | Local pass; independent reviewer/provider boundary open |
+| Runtime locking/admission/crash | R2 `21d9990`, C3 `b7656ab`, F test `task006f_runtime_independent.rs` | Full `xynoos-training` package debug/release on `00905b2`; 10 repeated lock-race runs, 3 repeated C3 race runs | Local pass; independent reviewer/provider boundary open |
 | Numerical correctness | Native tensor/autograd/training source and frozen oracle fixtures | Numerical 295 cases/2670 outputs; 25 gradient rows, 101 learning rows; AdamW 33 records; native independent controls | Pass within tested fixture domain |
 | Objective A corpus | PR #28 `f122f4e`, v3 manifest/tokenizer/audit | Python v3 generation and independent audit; Rust v3 data tests; independent stdlib split cross-check | Integrity/leakage checks pass; scientific admission fails |
 | Evaluation protocol | D1 v3 baseline and public evaluation code | Baseline reproduced in recorded v3 evidence | Baseline plumbing pass; public test exposed, validation adequacy not established |
@@ -16,7 +16,7 @@
 
 ## Integration history and hosted evidence
 
-The candidate is based on E `a5844e5606d2bdeaf9d4762110e63d93e71323eb`, with local merge commits incorporating exact C3 head `b7656abbc38703b3a34652cc5c7f9435a2b0c32c` and v3 head `f122f4e283b06d2cd20dd544fc0b18af4c8b6c98`. E’s tree lacked the exact C3 audit head and v3 implementation; PR #28 diverged from E’s descendant chain. Conflicts were resolved in `ci.yml` and `ROADMAP.md`. CI expected Rust checks were increased from 189 to 191 to account for the two active F tests. No numerical fixture, tolerance, optimizer equation, or compute ceiling was changed.
+The candidate is based on E `a5844e5606d2bdeaf9d4762110e63d93e71323eb`, with local merge commits incorporating exact C3 head `b7656abbc38703b3a34652cc5c7f9435a2b0c32c` and v3 head `f122f4e283b06d2cd20dd544fc0b18af4c8b6c98`. E’s tree lacked the exact C3 audit head and v3 implementation; PR #28 diverged from E’s descendant chain. Conflicts were resolved in `ci.yml` and `ROADMAP.md`. CI expected Rust checks were increased from 189 to 191 to account for the two active F tests. No numerical fixture, tolerance, optimizer equation, or compute ceiling was changed. The full training package passes in debug and release on `00905b2abc11d46002da57f2607a3ec18a73f956`; exact-hosted F validation remains pending.
 
 Historical exact-head Foundation runs: #23 `45824251360`, #24 `45781385665`, #25 `45784299844`, #26 `45824896343`, #27 `45857473668`, #28 `45855781546`; all recorded as passed on their respective SHA. These do not validate the integrated F head. The exact F pull request and hosted run must be filled into the release handoff after publication and exact-head CI completion.
 

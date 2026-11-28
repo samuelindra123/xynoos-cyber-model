@@ -56,7 +56,7 @@ CI success is evidence for the tested PR head only. These PRs were unmerged and 
 - **Evidence:** Failure was `2` complete `contended` records versus expected `3`; workers create result files before writing content. No second journal owner was observed. Follow-up controls passed ten times for the process-lock test and three times for the C3 race test.
 - **Root cause:** File-existence polling can observe a result file while the writer is still publishing its short content.
 - **Remediation:** F changes both wait predicates to await the complete `contended` contents before assertions; no runtime algorithm changed.
-- **Verification:** Focused repeats passed. Full post-fix package and exact-head hosted validation are required before this candidate is considered green.
+- **Verification:** Focused repeats passed; complete `xynoos-training` debug/release suites passed on `00905b2abc11d46002da57f2607a3ec18a73f956`. Exact-head hosted validation is still required before this candidate is considered green.
 
 ### F-BASE-02 — no accepted training revision
 
